@@ -165,16 +165,21 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
     }
 
     void scheduleConfig(ScheduleConfig config) {
+        long now = context.currentTimeMillis();
+        scheduleConfig(config, now, now);
+    }
+
+    void scheduleConfig(ScheduleConfig config, long nextFireBaseTime, long currentTime) {
         if (!running) return;
         if (config == null || !config.isEnabled()) return;
 
         String scheduleId = config.getScheduleId();
-        long now = context.currentTimeMillis();
-        long nextFireTime = computeNextFireTime(config, now);
+        long nextFireTime = computeNextFireTime(config, nextFireBaseTime);
         if (nextFireTime > 0) {
-            long delay = nextFireTime - now;
+            long delay = nextFireTime - currentTime;
             delay = delay < ADVANCE_THRESHOLD_MS ? Math.max(0, delay - ADVANCE_SHORT_MS) : delay - ADVANCE_LONG_MS; // 提前x秒， 避免时间误差导致错过。
-            log.debug("scheduleConfig({}) to fireTime at {} (delay {} ms / {}ms); registerSyncTime={} [调度器通过配置进行初始化调度任务， 创建事件驱动的定时器执行调度]", scheduleId, nextFireTime, delay, (nextFireTime - now),now);
+            log.debug("scheduleConfig({}) to fireTime at {} (delay {} ms / {}ms); registerSyncTime={} [调度器通过配置进行初始化调度任务， 创建事件驱动的定时器执行调度]",
+                    scheduleId, nextFireTime, delay, (nextFireTime - currentTime), currentTime);
             ScheduledFuture<?> schedule = context.getSchedulerExecutor().schedule(() -> onFire(config, nextFireTime), delay, TimeUnit.MILLISECONDS);
             scheduledFutures.put(scheduleId, schedule);
         }
@@ -209,7 +214,11 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
             setLastFireTime(scheduleId, nextFireTime);
         }
         /// 继续执行
-        scheduleConfig(latest);
+        scheduleConfig(latest, nextScheduleBaseTime(nextFireTime), now);
+    }
+
+    private long nextScheduleBaseTime(long currentFireTime) {
+        return currentFireTime == Long.MIN_VALUE ? Long.MIN_VALUE : currentFireTime - 1L;
     }
 
     private void setLastFireTime(String scheduleId, long time) {

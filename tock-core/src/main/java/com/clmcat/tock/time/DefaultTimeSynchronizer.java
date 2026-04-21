@@ -11,6 +11,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 
 /**
  * 默认的时间同步器实现，提供单调递增且经过远程时间源校正的当前时间。
@@ -23,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <ul>
  *     <li><b>采样中点补偿</b>：
  *         每次采样记录本地请求开始与结束的纳秒时间，计算 RTT 中点对应的本地毫秒时间，
- *         与远程时间戳差值作为单次偏移，多次采样取平均值以抵消网络延迟抖动。
+ *         与远程时间戳差值作为单次偏移；多次采样时优先采用 RTT 最小的样本，以降低网络抖动和链路非对称带来的偏差。
  *     </li>
  *     <li><b>单调递增保证</b>：
  *         使用 CAS 自旋和上一次返回值缓存，确保并发调用返回的时间戳不会小于前一次，
@@ -58,6 +59,10 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     private final TimeProvider timeProvider;
     private final long syncIntervalMs;
     private final int sampleCount;
+    private final LongSupplier wallClockMsSupplier;
+    private final LongSupplier nanoTimeSupplier;
+    private final long monotonicBaseWallClockMs;
+    private final long monotonicBaseNanoTime;
     private final AtomicLong offsetMs = new AtomicLong(0L);
     private final AtomicLong lastReturnedTimeMs = new AtomicLong(Long.MIN_VALUE);
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -74,10 +79,20 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     }
 
     public DefaultTimeSynchronizer(TimeProvider timeProvider, long syncIntervalMs, int sampleCount) {
+        this(timeProvider, syncIntervalMs, sampleCount, System::currentTimeMillis, System::nanoTime);
+    }
+
+    DefaultTimeSynchronizer(TimeProvider timeProvider, long syncIntervalMs, int sampleCount,
+                            LongSupplier wallClockMsSupplier, LongSupplier nanoTimeSupplier) {
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider is null");
         this.syncIntervalMs = syncIntervalMs > 0 ? syncIntervalMs : DEFAULT_SYNC_INTERVAL_MS;
         this.sampleCount = Math.max(1, sampleCount);
         this.isSystemTimeProvider = timeProvider instanceof SystemTimeProvider;
+        this.wallClockMsSupplier = Objects.requireNonNull(wallClockMsSupplier, "wallClockMsSupplier is null");
+        this.nanoTimeSupplier = Objects.requireNonNull(nanoTimeSupplier, "nanoTimeSupplier is null");
+        MonotonicAnchor anchor = captureMonotonicAnchor(this.wallClockMsSupplier, this.nanoTimeSupplier);
+        this.monotonicBaseWallClockMs = anchor.wallClockMs;
+        this.monotonicBaseNanoTime = anchor.nanoTime;
         syncNow();
     }
 
@@ -87,7 +102,7 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         if (isSystemTimeProvider) {
             adjusted = timeProvider.currentTimeMillis();
         } else {
-            adjusted = System.currentTimeMillis() + offsetMs.get();
+            adjusted = monotonicTimeMillis() + offsetMs.get();
         }
         for (;;) {
             long previous = lastReturnedTimeMs.get();
@@ -111,15 +126,23 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
 
         long totalOffset = 0L;
         int successCount = 0;
+        long bestOffset = 0L;
+        long bestRttNs = Long.MAX_VALUE;
 
         for (int i = 0; i < sampleCount; i++) {
             try {
-                long localStartMs = System.currentTimeMillis();
-                long localStartNs = System.nanoTime();
+                long localStartNs = nanoTimeSupplier.getAsLong();
                 long remoteTimeMs = timeProvider.currentTimeMillis();
-                long localElapsedNs = System.nanoTime() - localStartNs;
-                long midpointLocalMs = localStartMs + TimeUnit.NANOSECONDS.toMillis(localElapsedNs / 2L);
-                totalOffset += remoteTimeMs - midpointLocalMs;
+                long localEndNs = nanoTimeSupplier.getAsLong();
+                long rttNs = localEndNs - localStartNs;
+                long midpointLocalNs = localStartNs + (rttNs / 2L);
+                long midpointLocalMs = monotonicTimeMillisAt(midpointLocalNs);
+                long sampleOffset = remoteTimeMs - midpointLocalMs;
+                totalOffset += sampleOffset;
+                if (rttNs < bestRttNs) {
+                    bestRttNs = rttNs;
+                    bestOffset = sampleOffset;
+                }
                 successCount++;
             } catch (RuntimeException e) {
                 log.warn("Time sync sample failed", e);
@@ -131,10 +154,12 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
             return offsetMs.get();
         }
 
-        long newOffset = Math.round(totalOffset / (double) successCount);
+        long averageOffset = Math.round(totalOffset / (double) successCount);
+        long newOffset = bestOffset;
         long oldOffset = offsetMs.getAndSet(newOffset);
         if (Math.abs(newOffset - oldOffset) >= LARGE_OFFSET_WARN_MS) {
-            log.warn("Large time offset change detected: old={}ms, new={}ms", oldOffset, newOffset);
+            log.warn("Large time offset change detected: old={}ms, new={}ms, avg={}ms, bestRtt={}ns",
+                    oldOffset, newOffset, averageOffset, bestRttNs);
         }
         return newOffset;
     }
@@ -186,5 +211,30 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
             return thread;
         };
         return Executors.newSingleThreadScheduledExecutor(factory);
+    }
+
+    private long monotonicTimeMillis() {
+        return monotonicTimeMillisAt(nanoTimeSupplier.getAsLong());
+    }
+
+    private long monotonicTimeMillisAt(long nanoTime) {
+        return monotonicBaseWallClockMs + TimeUnit.NANOSECONDS.toMillis(nanoTime - monotonicBaseNanoTime);
+    }
+
+    private static MonotonicAnchor captureMonotonicAnchor(LongSupplier wallClockMsSupplier, LongSupplier nanoTimeSupplier) {
+        long startNs = nanoTimeSupplier.getAsLong();
+        long wallClockMs = wallClockMsSupplier.getAsLong();
+        long endNs = nanoTimeSupplier.getAsLong();
+        return new MonotonicAnchor(wallClockMs, startNs + ((endNs - startNs) / 2L));
+    }
+
+    private static final class MonotonicAnchor {
+        private final long wallClockMs;
+        private final long nanoTime;
+
+        private MonotonicAnchor(long wallClockMs, long nanoTime) {
+            this.wallClockMs = wallClockMs;
+            this.nanoTime = nanoTime;
+        }
     }
 }

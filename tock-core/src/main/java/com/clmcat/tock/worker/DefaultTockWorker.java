@@ -164,15 +164,32 @@ public class DefaultTockWorker implements TockWorker {
                 System.currentTimeMillis(), context.currentTimeMillis(), nextFireTime, delay);
 
         if (delay <= 0) {
-            Future<?> future = context.getWorkerExecutor().submit(() -> doExecuteJob(jobExecution));
-            executeJobFutures.computeIfAbsent(jobExecution.getWorkerGroup(), k -> new ConcurrentHashMap<>())
-                    .put(jobExecution.getExecutionId(), future);
+            Future<?> future = context.getWorkerExecutor().submit(() -> executeWhenDue(jobExecution));
+            trackExecutionFuture(jobExecution, future);
         } else {
             Future<?> schedule = context.getWorkerExecutor()
-                    .schedule(() -> doExecuteJob(jobExecution), delay, TimeUnit.MILLISECONDS);
-            executeJobFutures.computeIfAbsent(jobExecution.getWorkerGroup(), k -> new ConcurrentHashMap<>())
-                    .put(jobExecution.getExecutionId(), schedule);
+                    .schedule(() -> executeWhenDue(jobExecution), delay, TimeUnit.MILLISECONDS);
+            trackExecutionFuture(jobExecution, schedule);
         }
+    }
+
+    private void executeWhenDue(JobExecution jobExecution) {
+        if (!running) {
+            return;
+        }
+        long remaining = jobExecution.getNextFireTime() - context.currentTimeMillis();
+        if (remaining > 0L) {
+            Future<?> schedule = context.getWorkerExecutor()
+                    .schedule(() -> executeWhenDue(jobExecution), remaining, TimeUnit.MILLISECONDS);
+            trackExecutionFuture(jobExecution, schedule);
+            return;
+        }
+        doExecuteJob(jobExecution);
+    }
+
+    private void trackExecutionFuture(JobExecution jobExecution, Future<?> future) {
+        executeJobFutures.computeIfAbsent(jobExecution.getWorkerGroup(), k -> new ConcurrentHashMap<>())
+                .put(jobExecution.getExecutionId(), future);
     }
 
     void doExecuteJob(JobExecution jobExecution) {
@@ -205,7 +222,7 @@ public class DefaultTockWorker implements TockWorker {
                     .scheduleId(scheduleId)
                     .jobId(jobId)
                     .scheduledTime(jobExecution.getNextFireTime())
-                    .actualFireTime(System.currentTimeMillis())
+                    .actualFireTime(context.currentTimeMillis())
                     .params(jobExecution.getParams()).build();
 
             JobExecutor jobExecutor = jobRegistry.get(jobId);

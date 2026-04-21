@@ -22,7 +22,7 @@ public class DefaultTimeSynchronizerTest {
     }
 
     @Test
-    void shouldIgnoreFailedSamplesAndKeepPreviousOffset() {
+    void shouldUseSuccessfulSamplesWhenSomeRequestsFail() {
         FlakyTimeProvider provider = new FlakyTimeProvider(2_000L, 2);
         DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(provider, 100L, 4);
 
@@ -31,10 +31,29 @@ public class DefaultTimeSynchronizerTest {
             long before = synchronizer.offset();
             long updated = synchronizer.syncNow();
 
-            Assertions.assertEquals(before, updated);
-            Assertions.assertEquals(before, synchronizer.offset());
+            Assertions.assertTrue(Math.abs(before - 2_000L) <= 1L);
+            Assertions.assertTrue(Math.abs(updated - 2_000L) <= 1L);
+            Assertions.assertEquals(updated, synchronizer.offset());
         } finally {
             synchronizer.stop();
+        }
+    }
+
+    @Test
+    void shouldKeepPreviousOffsetWhenAllSamplesFail() {
+        DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(new OffsetDelayTimeProvider(1_500L, 10L), 100L, 3);
+        AlwaysFailAfterWarmupProvider failingProvider = new AlwaysFailAfterWarmupProvider(synchronizer.offset());
+        DefaultTimeSynchronizer failingSynchronizer = new DefaultTimeSynchronizer(failingProvider, 100L, 3);
+
+        try {
+            long before = failingSynchronizer.offset();
+            long updated = failingSynchronizer.syncNow();
+
+            Assertions.assertEquals(before, updated);
+            Assertions.assertEquals(before, failingSynchronizer.offset());
+        } finally {
+            synchronizer.stop();
+            failingSynchronizer.stop();
         }
     }
 
@@ -90,6 +109,23 @@ public class DefaultTimeSynchronizerTest {
                 throw new IllegalStateException("simulated provider failure");
             }
             return System.currentTimeMillis() + offsetMs;
+        }
+    }
+
+    private static final class AlwaysFailAfterWarmupProvider implements TimeProvider {
+        private final long initialTime;
+        private int calls;
+
+        private AlwaysFailAfterWarmupProvider(long offsetMs) {
+            this.initialTime = System.currentTimeMillis() + offsetMs;
+        }
+
+        @Override
+        public long currentTimeMillis() {
+            if (calls++ == 0) {
+                return initialTime;
+            }
+            throw new IllegalStateException("simulated provider failure");
         }
     }
 }

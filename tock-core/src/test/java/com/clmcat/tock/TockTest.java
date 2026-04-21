@@ -32,7 +32,7 @@ public class TockTest {
         Config config = Config.builder()
                 .register(register)
                 .scheduleStore(MemoryScheduleStore.create())
-                .jobStore(MemoryJobStore.create())
+//                .jobStore(MemoryJobStore.create())
                 .workerQueue(MemoryPullableWorkerQueue.create())
                 .workerExecutor(TaskSchedulers.highPrecision("test-worker"))
                 .build();

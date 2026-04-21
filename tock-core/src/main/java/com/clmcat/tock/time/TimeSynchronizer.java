@@ -13,7 +13,7 @@ import com.clmcat.tock.TockContext;
  * </p>
  *
  * <h3>典型实现</h3>
- * 可参考 {@link DefaultTimeSynchronizer}，它通过周期性采样远程时间源、使用中点补偿网络延迟，
+ * 可参考 {@link DefaultTimeSynchronizer}，它通过周期性采样远程时间源、使用中点补偿网络延迟并优先采用 RTT 最小的样本，
  * 并利用 CAS 自旋保证时间单调性。
  *
  * @author clmcat
