@@ -25,6 +25,7 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +46,7 @@ class RedisMemoryTimingDiagnosticsTest {
 
         try (JedisPool jedisPool = new JedisPool("127.0.0.1", 6379)) {
             assumeRedisAvailable(jedisPool);
+            assumeRedisClockCloseToJvmClock(jedisPool);
             ScenarioSummary redis = runRedisScenario("redis-high-precision", jedisPool, TaskSchedulers.highPrecision("diag-redis-worker"));
 
             System.out.println(memory.summaryLine());
@@ -67,6 +69,7 @@ class RedisMemoryTimingDiagnosticsTest {
     void shouldKeepRedisDefaultWorkerWithinTightBound() {
         try (JedisPool jedisPool = new JedisPool("127.0.0.1", 6379)) {
             assumeRedisAvailable(jedisPool);
+            assumeRedisClockCloseToJvmClock(jedisPool);
 
             ScenarioSummary redisDefault = runRedisScenario("redis-default-worker", jedisPool, new ScheduledExecutorTaskScheduler("diag-redis-default"));
             ScenarioSummary redisHighPrecision = runRedisScenario("redis-high-worker", jedisPool, TaskSchedulers.highPrecision("diag-redis-high"));
@@ -158,6 +161,30 @@ class RedisMemoryTimingDiagnosticsTest {
         try (Jedis jedis = jedisPool.getResource()) {
             Assumptions.assumeTrue("PONG".equalsIgnoreCase(jedis.ping()), "Redis 127.0.0.1:6379 is not available");
         }
+    }
+
+    private void assumeRedisClockCloseToJvmClock(JedisPool jedisPool) {
+        List<Long> diffs = new ArrayList<Long>();
+        try (Jedis jedis = jedisPool.getResource()) {
+            for (int i = 0; i < 5; i++) {
+                long before = System.currentTimeMillis();
+                List<String> time = jedis.time();
+                long after = System.currentTimeMillis();
+                long redisMs = Long.parseLong(time.get(0)) * 1000L + Long.parseLong(time.get(1)) / 1000L;
+                long midpoint = before + ((after - before) / 2L);
+                diffs.add(Math.abs(redisMs - midpoint));
+                try {
+                    Thread.sleep(20L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while sampling Redis clock", e);
+                }
+            }
+        }
+        Collections.sort(diffs);
+        long medianDiff = diffs.get(diffs.size() / 2);
+        Assumptions.assumeTrue(medianDiff <= 100L,
+                "Redis clock is not close to JVM system clock in this environment (median diff=" + medianDiff + "ms)");
     }
 
     private void cleanupRedisNamespace(JedisPool jedisPool, String namespacePrefix) {

@@ -131,6 +131,8 @@ tock.refreshSchedules();
 
 当前仓库已经补充了可重复的多轮 benchmark、专项 study，以及 Windows / WSL2 对照结果。当前结论：
 
+- Windows 本机 memory-only 严格 A/B 下，`high-precision` 的 `worker-chain avg abs skew` 为 **0.360ms**，优于 `default-worker` 的 **2.950ms**
+- 单看调度器本体，`high-precision` 为 **0.108ms**，优于 `default-worker` 的 **1.507ms**
 - Windows 本机 Redis 高精度 Worker 稳态整秒偏差约 **3ms 级**
 - WSL2 Ubuntu 参考环境下 Redis 高精度 Worker 整秒偏差约 **4ms**
 - Windows 本机内存模式吞吐约 **10374.77 tasks/s**

@@ -138,10 +138,12 @@
 
 ### 修复后结果
 
-- WSL2 memory-only 12 轮复测：
-  - `memory-default-worker`：`0.23ms`
-  - `memory-high-precision`：`1.42ms`
-- **未再出现 `700ms` 级长尾**
+- 当时的 WSL2 memory-only 12 轮复测里，**未再出现 `700ms` 级长尾**
+- 但当前用于“谁更准”排名的最终口径，已经切换到更严格的 Windows memory-only Worker A/B：
+  - `default-worker` worker-chain：`2.950ms`
+  - `high-precision` worker-chain：`0.360ms`
+  - `default-worker` scheduler-only：`1.507ms`
+  - `high-precision` scheduler-only：`0.108ms`
 
 ### 当前判断
 
