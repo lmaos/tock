@@ -19,7 +19,7 @@ import java.util.concurrent.locks.LockSupport;
  */
 @Slf4j
 public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
-    public static final long DEFAULT_ADVANCE_NANOS = 660_000;
+    public static final long DEFAULT_ADVANCE_NANOS = 200_000;
     private static final int WHEEL_SIZE = 1024;
     private static final int WHEEL_MASK = WHEEL_SIZE - 1;
     private static final int WHEEL_BITS = 10;
@@ -294,6 +294,7 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
             if ((spins++ & 0x7F) == 0 && System.nanoTime() >= deadlineNanos) {
                 break;
             }
+            SpinWaitSupport.onSpinWait();
         }
     }
 

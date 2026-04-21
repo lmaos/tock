@@ -42,16 +42,16 @@ public class RedisTockRegister extends RedisSupport implements TockRegister, Tim
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile TockContext tockContext;
 
-    public RedisTockRegister(String name, JedisPool jedisPool) {
-        this(name, jedisPool, null, 3000L, 1000L, false);
+    public RedisTockRegister(String namespace, JedisPool jedisPool) {
+        this(namespace, jedisPool, null, 3000L, 1000L, false);
     }
 
-    public RedisTockRegister(String name, String host, int port) {
-        this(name, new JedisPool(host, port), null, 3000L, 1000L, true);
+    public RedisTockRegister(String namespace, String host, int port) {
+        this(namespace, new JedisPool(host, port), null, 3000L, 1000L, true);
     }
 
-    public RedisTockRegister(String name, JedisPool jedisPool, Serializer serializer, long leaseTimeoutMs, long heartbeatIntervalMs) {
-        this(name, jedisPool, serializer, leaseTimeoutMs, heartbeatIntervalMs, false);
+    public RedisTockRegister(String namespace, JedisPool jedisPool, Serializer serializer, long leaseTimeoutMs, long heartbeatIntervalMs) {
+        this(namespace, jedisPool, serializer, leaseTimeoutMs, heartbeatIntervalMs, false);
     }
 
     public RedisTockRegister(String name, JedisPool jedisPool, Serializer serializer, long leaseTimeoutMs, long heartbeatIntervalMs, boolean ownPool) {

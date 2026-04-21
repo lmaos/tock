@@ -43,7 +43,6 @@ public class TockContext {
      * 延时任务存储，按执行时间排序（类似延迟队列）。 由调度计算未来执行点的配置进行存储。
      * 使用时，调度器会定期检查到期任务并推送给 WorkerQueue 执行， Worker响应执行队列的执行操作。
      */
-    @NonNull
     private JobStore jobStore;
     /**
      * 调度选主。同一时间只有一个主服务，用来做调度，其他服务等待和只执行Worker。
