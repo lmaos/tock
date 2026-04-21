@@ -2,6 +2,8 @@
 
 本文描述的是当前 `tock-core` 的实际运行路径，而不是早期设计草稿。
 
+如果你更关心“哪些层可以替换、每个接口负责什么”，可配合阅读 [extensibility.md](extensibility.md)。
+
 ## 总体结构
 
 ```text
@@ -74,7 +76,7 @@ Redis 模式下，`RedisTockMaster` 使用：
 
 ## 时间模型
 
-时间链路是这次修复的关键：
+时间链路：
 
 1. `timeProvider` 提供原始时间源
 2. `DefaultTimeSynchronizer` 基于最小 RTT 样本估算 offset

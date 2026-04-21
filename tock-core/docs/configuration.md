@@ -2,6 +2,8 @@
 
 本文对应 `com.clmcat.tock.Config` 的当前实现，优先说明**真实存在且已接入运行链路**的配置项。
 
+如果你想从“哪些字段可以替换、每个接口负责什么”的角度理解 Tock，先看 [extensibility.md](extensibility.md)。
+
 ## `Config` 字段总览
 
 | 字段 | 必填 | 默认值 | 说明 |
@@ -20,6 +22,8 @@
 | `pendingExecutionRecoveryEnabled` | 否 | `false` | 在 `doExecuteJob` 前记录短生命周期 pending 标记，便于故障恢复 |
 | `timeProvider` | 否 | 自动推导 | 优先级：显式配置 > `register`(若实现 `TimeProvider`) > `SystemTimeProvider` |
 | `timeSynchronizer` | 否 | `DefaultTimeSynchronizer(timeProvider)` | 统一时间同步器 |
+
+上表里除了线程池和布尔开关，绝大多数字段本身都是接口，因此可以由业务侧替换为自定义实现。
 
 ## 推荐配置
 

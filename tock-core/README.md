@@ -14,6 +14,7 @@ Tock 是一个面向 JVM 的分布式定时器内核：**一个 Master 负责调
 - **Master-Worker 架构**：仅主节点调度，所有节点都可消费任务
 - **同步时间基准**：Redis 模式下可自动使用 Redis `TIME` 作为采样源
 - **两种本地执行器**：默认 `ScheduledExecutorTaskScheduler`，可选 `TaskSchedulers.highPrecision(...)`
+- **高度可扩展**：注册中心、调度器、队列、时间源、同步器、序列化器都可替换
 - **动态调度配置**：`ScheduleStore` 更新后，调度器可通过版本号刷新
 - **分布式执行保护**：Worker 使用 group attribute 锁避免同一计划被并发重复执行
 
@@ -25,6 +26,13 @@ Tock 是一个面向 JVM 的分布式定时器内核：**一个 Master 负责调
     <artifactId>tock-core</artifactId>
     <version>1.0-SNAPSHOT</version>
 </dependency>
+
+<!-- 序列化依赖 ： 
+    默认序列工具根据用户依赖的第三方库自动选择，优先级为：Jackson > Fastjson > Kryo > JavaSerializer。
+    需要自行导入
+ -->
+
+<!-- Jedis 依赖， 当前默认版本的Redis 是 Jedis客户端实现。需要导入Jedis -->
 ```
 
 ## 5 分钟上手：内存模式
@@ -116,10 +124,28 @@ tock.refreshSchedules();
 | `WorkerGroup` | 任务路由键；Worker 只会消费自己加入的组 |
 | `Tock.currentTimeMillis()` | 当前统一时间基准；Redis 模式下由同步器对齐远端时间 |
 
+## 为什么说它是框架
+
+Tock 当前不仅提供了 Memory / Redis 两套默认实现，也把关键基础设施边界抽成了接口。  
+你可以替换：
+
+- `TockRegister`
+- `ScheduleStore`
+- `WorkerQueue`
+- `TockScheduler`
+- `TockWorker`
+- `TaskScheduler`
+- `TimeProvider` / `TimeSynchronizer`
+- `Serializer`
+
+也就是说，它既可以直接作为开箱即用的定时器使用，也可以作为你自己基础设施之上的**可扩展分布式定时器内核**。  
+详细接口说明见 [docs/extensibility.md](docs/extensibility.md)。
+
 ## 文档
 
 - [配置指南](docs/configuration.md)
 - [架构与设计](docs/architecture.md)
+- [可扩展性与接口实现指南](docs/extensibility.md)
 - [API 说明](docs/api.md)
 - [运维手册](docs/operations.md)
 - [当前性能与精度报告](PERFORMANCE.md)
