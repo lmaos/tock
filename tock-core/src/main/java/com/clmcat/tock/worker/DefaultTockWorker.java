@@ -159,14 +159,17 @@ public class DefaultTockWorker implements TockWorker {
         long now = context.currentTimeMillis();
         long nextFireTime = jobExecution.getNextFireTime();
         long delay = Math.max(nextFireTime - now, 0);
+        onExecutionReceived(jobExecution, now, nextFireTime, delay);
 
         log.debug("executeJob({}), currentTime: {}, registerSyncTime:{}, fireTime:{}, (delay:{} ms)", jobExecution.getExecutionId(),
                 System.currentTimeMillis(), context.currentTimeMillis(), nextFireTime, delay);
 
         if (delay <= 0) {
+            onExecutionScheduled(jobExecution, delay, true);
             Future<?> future = context.getWorkerExecutor().submit(() -> executeWhenDue(jobExecution));
             trackExecutionFuture(jobExecution, future);
         } else {
+            onExecutionScheduled(jobExecution, delay, false);
             Future<?> schedule = context.getWorkerExecutor()
                     .schedule(() -> executeWhenDue(jobExecution), delay, TimeUnit.MILLISECONDS);
             trackExecutionFuture(jobExecution, schedule);
@@ -178,12 +181,16 @@ public class DefaultTockWorker implements TockWorker {
             return;
         }
         long remaining = jobExecution.getNextFireTime() - context.currentTimeMillis();
+        onScheduledCallback(jobExecution, remaining);
         if (remaining > 0L) {
+            onExecutionRescheduled(jobExecution, remaining);
+            onExecutionScheduled(jobExecution, remaining, false);
             Future<?> schedule = context.getWorkerExecutor()
                     .schedule(() -> executeWhenDue(jobExecution), remaining, TimeUnit.MILLISECONDS);
             trackExecutionFuture(jobExecution, schedule);
             return;
         }
+        onExecutionDue(jobExecution, context.currentTimeMillis());
         doExecuteJob(jobExecution);
     }
 
@@ -341,6 +348,21 @@ public class DefaultTockWorker implements TockWorker {
         return context != null
                 && context.getConfig() != null
                 && context.getConfig().isPendingExecutionRecoveryEnabled();
+    }
+
+    protected void onExecutionReceived(JobExecution jobExecution, long currentTimeMs, long nextFireTimeMs, long delayMs) {
+    }
+
+    protected void onExecutionScheduled(JobExecution jobExecution, long delayMs, boolean immediate) {
+    }
+
+    protected void onScheduledCallback(JobExecution jobExecution, long remainingMs) {
+    }
+
+    protected void onExecutionRescheduled(JobExecution jobExecution, long remainingMs) {
+    }
+
+    protected void onExecutionDue(JobExecution jobExecution, long currentTimeMs) {
     }
 
     @Override

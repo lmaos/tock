@@ -9,6 +9,7 @@ import com.clmcat.tock.redis.RedisSupport;
 import com.clmcat.tock.serialize.Serializer;
 import com.clmcat.tock.time.TimeProvider;
 import lombok.extern.slf4j.Slf4j;
+import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
 import java.util.ArrayList;
@@ -40,7 +41,9 @@ public class RedisTockRegister extends RedisSupport implements TockRegister, Tim
     private final RedisTockMaster master;
     private final RedisTockCurrentNode currentNode;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final Object timeJedisMonitor = new Object();
     private volatile TockContext tockContext;
+    private volatile Jedis timeJedis;
 
     public RedisTockRegister(String namespace, JedisPool jedisPool) {
         this(namespace, jedisPool, null, 3000L, 1000L, false);
@@ -192,6 +195,7 @@ public class RedisTockRegister extends RedisSupport implements TockRegister, Tim
         if (!running.compareAndSet(true, false)) return;
         master.stop();
         currentNode.stop();
+        closeTimeJedis();
         if (ownPool) {
             jedisPool.close();
         }
@@ -204,12 +208,41 @@ public class RedisTockRegister extends RedisSupport implements TockRegister, Tim
 
     @Override
     public long currentTimeMillis() {
-        return withJedis(jedis -> {
-            List<String> time = jedis.time();
-            long seconds = Long.parseLong(time.get(0));
-            long micros = Long.parseLong(time.get(1));
-            return seconds * 1000L + micros / 1000L;
-        });
+        synchronized (timeJedisMonitor) {
+            RuntimeException lastError = null;
+            for (int attempt = 0; attempt < 2; attempt++) {
+                Jedis jedis = ensureTimeJedis();
+                try {
+                    List<String> time = jedis.time();
+                    long seconds = Long.parseLong(time.get(0));
+                    long micros = Long.parseLong(time.get(1));
+                    return seconds * 1000L + micros / 1000L;
+                } catch (RuntimeException e) {
+                    lastError = e;
+                    closeTimeJedis();
+                }
+            }
+            throw lastError == null ? new IllegalStateException("Redis TIME failed without exception") : lastError;
+        }
+    }
+
+    private Jedis ensureTimeJedis() {
+        if (timeJedis == null) {
+            timeJedis = jedisPool.getResource();
+        }
+        return timeJedis;
+    }
+
+    private void closeTimeJedis() {
+        Jedis jedis = timeJedis;
+        timeJedis = null;
+        if (jedis != null) {
+            try {
+                jedis.close();
+            } catch (RuntimeException e) {
+                log.warn("Closing Redis TIME connection failed", e);
+            }
+        }
     }
 
     private String runtimeKey() {

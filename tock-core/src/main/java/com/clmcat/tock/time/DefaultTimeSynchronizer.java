@@ -34,8 +34,8 @@ import java.util.function.LongSupplier;
  *         后台线程以固定间隔执行采样，动态更新偏移量，使同步时间与远程源保持最终一致。
  *     </li>
  *     <li><b>系统时间优化</b>：
- *         若 {@link TimeProvider} 为 {@link SystemTimeProvider} 实例，则退化为直接返回本地系统时间，
- *         不启动后台线程，不进行偏移计算，仅保留单调性保护，以节省资源。
+ *         若 {@link TimeProvider} 为 {@link SystemTimeProvider} 实例，则退化为基于本地墙钟锚点 +
+ *         单调时钟生成时间，不启动后台线程，不进行偏移计算，以避免墙钟跳变与本地等待逻辑失配。
  *     </li>
  * </ul>
  *
@@ -54,6 +54,7 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     private static final long DEFAULT_SYNC_INTERVAL_MS = 1000L;
     private static final int DEFAULT_SAMPLE_COUNT = 3;
     private static final long LARGE_OFFSET_WARN_MS = 1000L;
+    private static final long MAX_OFFSET_ADJUST_STEP_MS = 5L;
 
     private final boolean isSystemTimeProvider;
     private final TimeProvider timeProvider;
@@ -65,6 +66,7 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     private final long monotonicBaseNanoTime;
     private final AtomicLong offsetMs = new AtomicLong(0L);
     private final AtomicLong lastReturnedTimeMs = new AtomicLong(Long.MIN_VALUE);
+    private final AtomicBoolean offsetInitialized = new AtomicBoolean(false);
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     private ScheduledExecutorService scheduler;
@@ -98,11 +100,9 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
 
     @Override
     public long currentTimeMillis() {
-        long adjusted;
-        if (isSystemTimeProvider) {
-            adjusted = timeProvider.currentTimeMillis();
-        } else {
-            adjusted = monotonicTimeMillis() + offsetMs.get();
+        long adjusted = monotonicTimeMillis();
+        if (!isSystemTimeProvider) {
+            adjusted += offsetMs.get();
         }
         for (;;) {
             long previous = lastReturnedTimeMs.get();
@@ -155,8 +155,9 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         }
 
         long averageOffset = Math.round(totalOffset / (double) successCount);
-        long newOffset = bestOffset;
-        long oldOffset = offsetMs.getAndSet(newOffset);
+        long oldOffset = offsetMs.get();
+        long newOffset = stabilizeOffset(oldOffset, bestOffset, bestRttNs);
+        offsetMs.set(newOffset);
         if (Math.abs(newOffset - oldOffset) >= LARGE_OFFSET_WARN_MS) {
             log.warn("Large time offset change detected: old={}ms, new={}ms, avg={}ms, bestRtt={}ns",
                     oldOffset, newOffset, averageOffset, bestRttNs);
@@ -226,6 +227,20 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         long wallClockMs = wallClockMsSupplier.getAsLong();
         long endNs = nanoTimeSupplier.getAsLong();
         return new MonotonicAnchor(wallClockMs, startNs + ((endNs - startNs) / 2L));
+    }
+
+    private long stabilizeOffset(long currentOffset, long sampledOffset, long bestRttNs) {
+        if (offsetInitialized.compareAndSet(false, true)) {
+            return sampledOffset;
+        }
+        long delta = sampledOffset - currentOffset;
+        if (Math.abs(delta) <= MAX_OFFSET_ADJUST_STEP_MS) {
+            return sampledOffset;
+        }
+        long boundedOffset = currentOffset + Math.max(-MAX_OFFSET_ADJUST_STEP_MS, Math.min(MAX_OFFSET_ADJUST_STEP_MS, delta));
+        log.warn("Clamped time offset adjustment: current={}ms, sampled={}ms, applied={}ms, bestRtt={}ns",
+                currentOffset, sampledOffset, boundedOffset, bestRttNs);
+        return boundedOffset;
     }
 
     private static final class MonotonicAnchor {

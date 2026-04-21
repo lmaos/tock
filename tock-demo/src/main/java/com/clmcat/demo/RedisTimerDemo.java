@@ -35,7 +35,7 @@ public class RedisTimerDemo {
         RedisTockRegister register = new RedisTockRegister(namespace, jedisPool);
 
         Config config = Config.builder()
-                //.workerExecutor(TaskSchedulers.highPrecision(namespace + "-test-worker"))
+                .workerExecutor(TaskSchedulers.highPrecision(namespace + "-test-worker"))
                 .register(register)
                 .workerQueue(RedisSubscribableWorkerQueue.create(namespace, jedisPool))
                 .scheduleStore(RedisScheduleStore.create(namespace, jedisPool))

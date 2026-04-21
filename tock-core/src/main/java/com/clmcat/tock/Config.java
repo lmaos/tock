@@ -78,7 +78,7 @@ public class Config {
      * 时间提供者，用于获取原始时间戳。
      * <p>
      * 该接口仅负责从某个具体的时间源（如本地系统时钟、Redis TIME 命令、NTP 服务器等）读取当前毫秒时间戳，
-     * 不涉及任何同步或偏移校正逻辑。默认实现为 {@link SystemTimeProvider}，直接返回 {@link System#currentTimeMillis()}。
+     * 不涉及任何同步或偏移校正逻辑。默认实现为 {@link SystemTimeProvider}，提供本地系统墙钟时间。
      * </p>
      * <p>
      * 当需要分布式环境下多节点时间一致时，可替换为基于远程时间源的实现（例如从 Redis 获取统一时间），
@@ -115,7 +115,7 @@ public class Config {
      * </ul>
      * <p>
      * 默认实现为 {@link com.clmcat.tock.time.DefaultTimeSynchronizer}，若使用 {@link SystemTimeProvider} 作为 {@code timeProvider}，
-     * 则会自动退化为直接返回本地系统时间（仍保留单调性保护），不启动后台同步线程，以节省资源。
+     * 则会自动退化为基于本地墙钟锚点与单调时钟生成时间，不启动后台同步线程，以节省资源并避免墙钟跳变影响本地等待逻辑。
      * </p>
      * <p>
      * 调度器（如 {@code CronScheduler}）和 Worker 中所有需要获取当前时间的操作都应通过该同步器，

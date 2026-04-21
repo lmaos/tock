@@ -24,6 +24,7 @@ import com.clmcat.tock.time.TimeSynchronizer;
 import com.clmcat.tock.worker.DefaultTockWorker;
 import com.clmcat.tock.worker.TockWorker;
 import com.clmcat.tock.worker.WorkerQueue;
+import com.clmcat.tock.worker.scheduler.HighPrecisionWheelTaskScheduler;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -233,6 +234,8 @@ public class Tock {
             });
         }
 
+        tuneWorkerExecutorForTimeSource();
+
 
         this.tockContext = TockContext.builder()
                 .config(config)
@@ -264,6 +267,23 @@ public class Tock {
         injectContext(serializer, tockContext);
         injectContext(worker, tockContext);
         injectContext(scheduler, tockContext);
+    }
+
+    private void tuneWorkerExecutorForTimeSource() {
+        if (!(workerExecutor instanceof HighPrecisionWheelTaskScheduler)) {
+            return;
+        }
+        if (timeProvider instanceof SystemTimeProvider) {
+            return;
+        }
+        HighPrecisionWheelTaskScheduler scheduler = (HighPrecisionWheelTaskScheduler) workerExecutor;
+        long before = scheduler.advanceNanos();
+        scheduler.applyDistributedDefaultAdvanceIfNeeded();
+        long after = scheduler.advanceNanos();
+        if (after != before) {
+            log.debug("Adjusted HighPrecisionWheelTaskScheduler advance from {}ns to {}ns for distributed time source {}",
+                    before, after, timeProvider.getClass().getSimpleName());
+        }
     }
 
 

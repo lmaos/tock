@@ -1,7 +1,6 @@
 package com.clmcat.tock.worker.scheduler;
 
 import com.clmcat.tock.TockContext;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Objects;
@@ -20,6 +19,7 @@ import java.util.concurrent.locks.LockSupport;
 @Slf4j
 public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
     public static final long DEFAULT_ADVANCE_NANOS = 200_000;
+    public static final long DISTRIBUTED_DEFAULT_ADVANCE_NANOS = 1_000_000L;
     private static final int WHEEL_SIZE = 1024;
     private static final int WHEEL_MASK = WHEEL_SIZE - 1;
     private static final int WHEEL_BITS = 10;
@@ -37,8 +37,8 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
     private volatile long baseTimeNanos;
     private volatile long nextTickDeadlineNanos;
 
-    @Setter
     private long advanceNanos = DEFAULT_ADVANCE_NANOS;
+    private volatile boolean advanceCustomized;
 
     public HighPrecisionWheelTaskScheduler() {
         this("tock-wheel-worker");
@@ -141,6 +141,22 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
     @Override
     public long advanceNanos() {
         return advanceNanos;
+    }
+
+    public void setAdvanceNanos(long advanceNanos) {
+        this.advanceNanos = Math.max(0L, advanceNanos);
+        this.advanceCustomized = true;
+    }
+
+    public boolean isAdvanceCustomized() {
+        return advanceCustomized;
+    }
+
+    public void applyDistributedDefaultAdvanceIfNeeded() {
+        if (advanceCustomized) {
+            return;
+        }
+        this.advanceNanos = DISTRIBUTED_DEFAULT_ADVANCE_NANOS;
     }
 
     @Override
@@ -288,13 +304,17 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
     protected void onSpinWait(long deadlineNanos) {
         // 默认实现：每 100 次自旋检查一次时间，其余迭代仅忙等
         int spins = 0;
-        while (running.get()) {
-            // 子类可在此处插入 Thread.onSpinWait() 等优化
-            // 新：每 128 次自旋检查一次时间（掩码 0x7F）, --- 作废： 每 64 次自旋检查一次 （掩码0x3F） ---
-            if ((spins++ & 0x7F) == 0 && System.nanoTime() >= deadlineNanos) {
-                break;
+        if (SpinWaitSupport.isOnSpinWaitAvailable()) {
+            // Java 9+：使用 Thread.onSpinWait() 优化
+            while (running.get() && ((spins++ & 0x7F) != 0 || System.nanoTime() - deadlineNanos < 0)) {
+                SpinWaitSupport.onSpinWait();
             }
-            SpinWaitSupport.onSpinWait();
+        } else {
+            // Java 8：纯空循环，定期检查时间
+            // 每 128 次自旋检查一次时间（掩码 0x7F）
+            while (running.get() && ((spins++ & 0x7F) != 0 || System.nanoTime() - deadlineNanos < 0)) {
+                // 空循环体
+            }
         }
     }
 

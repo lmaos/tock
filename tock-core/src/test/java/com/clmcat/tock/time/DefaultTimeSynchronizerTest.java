@@ -3,6 +3,10 @@ package com.clmcat.tock.time;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+
 public class DefaultTimeSynchronizerTest {
 
     @Test
@@ -68,6 +72,52 @@ public class DefaultTimeSynchronizerTest {
         }
     }
 
+    @Test
+    void shouldUseMonotonicClockForSystemTimeProvider() {
+        AtomicLong wallClockMs = new AtomicLong(10_000L);
+        AtomicLong nanoTime = new AtomicLong(1_000_000_000L);
+        DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(
+                new SystemTimeProvider(),
+                100L,
+                1,
+                wallClockMs::get,
+                nanoTime::get
+        );
+
+        long first = synchronizer.currentTimeMillis();
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(995L));
+        wallClockMs.addAndGet(1_900L);
+        long second = synchronizer.currentTimeMillis();
+
+        Assertions.assertEquals(995L, second - first,
+                "system time provider should advance according to monotonic nano time even if wall clock jumps");
+    }
+
+    @Test
+    void shouldClampLargeOffsetJumpAfterInitialization() {
+        AtomicLong wallClockMs = new AtomicLong(10_000L);
+        AtomicLong nanoTime = new AtomicLong(1_000_000_000L);
+        ScriptedTimeProvider provider = new ScriptedTimeProvider(wallClockMs, nanoTime);
+        provider.nextStep(new ProviderStep(0L, 0L));
+
+        DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(
+                provider,
+                100L,
+                1,
+                wallClockMs::get,
+                nanoTime::get
+        );
+
+        wallClockMs.addAndGet(1_000L);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(1_000L));
+        provider.nextStep(new ProviderStep(1_600L, 0L));
+
+        long updated = synchronizer.syncNow();
+
+        Assertions.assertEquals(5L, updated,
+                "large sampled offset jumps should be slewed instead of being applied in a single step");
+    }
+
     private static void sleep(long ms) {
         try {
             Thread.sleep(ms);
@@ -126,6 +176,39 @@ public class DefaultTimeSynchronizerTest {
                 return initialTime;
             }
             throw new IllegalStateException("simulated provider failure");
+        }
+    }
+
+    private static final class ScriptedTimeProvider implements TimeProvider {
+        private final AtomicLong wallClockMs;
+        private final AtomicLong nanoTime;
+        private final AtomicReference<ProviderStep> nextStep = new AtomicReference<>(new ProviderStep(0L, 0L));
+
+        private ScriptedTimeProvider(AtomicLong wallClockMs, AtomicLong nanoTime) {
+            this.wallClockMs = wallClockMs;
+            this.nanoTime = nanoTime;
+        }
+
+        private void nextStep(ProviderStep step) {
+            nextStep.set(step);
+        }
+
+        @Override
+        public long currentTimeMillis() {
+            ProviderStep step = nextStep.getAndSet(new ProviderStep(0L, 0L));
+            wallClockMs.addAndGet(step.delayMs);
+            nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(step.delayMs));
+            return wallClockMs.get() + step.remoteOffsetMs;
+        }
+    }
+
+    private static final class ProviderStep {
+        private final long delayMs;
+        private final long remoteOffsetMs;
+
+        private ProviderStep(long delayMs, long remoteOffsetMs) {
+            this.delayMs = delayMs;
+            this.remoteOffsetMs = remoteOffsetMs;
         }
     }
 }
