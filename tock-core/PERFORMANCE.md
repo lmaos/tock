@@ -190,14 +190,17 @@ redis-high-precision     | ███ 4711.16 tasks/s
 
 ## 6. 产物位置
 
-| 产物 | 路径                                          |
-| --- |---------------------------------------------|
-| Windows 全量 benchmark | `docs/performance/performance/`                  |
-| Windows memory-only Worker A/B | `docs/performance/memory-worker-precision-study/`     |
-| Windows 2G 长尾复测 | `docs/performance/tail-study/windows-2g/`             |
-| Windows 4G 长尾复测 | `docs/performance/tail-study/windows-4g/`             |
-| WSL2 Ubuntu 全量 benchmark | `docs/performance/wsl-study/linux-2g/`                |
-| Redis 高精度专项 study | `docs/performance/performance/redis-precision-study/` |
+| 产物 | 路径                                                   |
+| --- |------------------------------------------------------|
+| Windows 全量 benchmark | `target/performance/`                                |
+| Windows memory-only Worker A/B | `target/memory-worker-precision-study/`     |
+| Windows 2G 长尾复测 | `target/tail-study/windows-2g/`             |
+| Windows 4G 长尾复测 | `target/tail-study/windows-4g/`             |
+| WSL2 Ubuntu 全量 benchmark | `target/wsl-study/linux-2g/`                |
+| Redis 高精度专项 study | `target/performance/redis-precision-study/` |
+
+备注: target 仅本地测试产物, 可参考: [PerformanceBenchmarkMain.java](src/test/java/com/clmcat/tock/PerformanceBenchmarkMain.java)
+
 
 ## 7. 补充说明
 
