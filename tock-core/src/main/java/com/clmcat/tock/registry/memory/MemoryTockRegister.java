@@ -28,6 +28,10 @@ public class MemoryTockRegister implements TockRegister {
         this.memoryManager = memoryManager;
     }
 
+    public static MemoryTockRegister create(String name, MemoryManager memoryManager) {
+        return new MemoryTockRegister(name, memoryManager);
+    }
+
 
     @Override
     public void start(TockContext context) {
