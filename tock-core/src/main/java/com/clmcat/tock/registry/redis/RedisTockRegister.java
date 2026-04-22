@@ -64,6 +64,9 @@ public class RedisTockRegister extends RedisSupport implements TockRegister {
         this.master = new RedisTockMaster(this.namespace, jedisPool, serializer, namespace, this.leaseTimeoutMs, this.heartbeatIntervalMs);
     }
 
+    public static RedisTockRegister create(String namespace, JedisPool jedisPool) {
+        return new RedisTockRegister(namespace, jedisPool);
+    }
     @Override
     public TockMaster getMaster() {
         return master;
