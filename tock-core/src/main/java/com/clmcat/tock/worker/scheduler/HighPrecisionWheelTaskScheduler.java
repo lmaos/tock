@@ -18,7 +18,7 @@ import java.util.concurrent.locks.LockSupport;
  */
 @Slf4j
 public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
-    public static final long DEFAULT_ADVANCE_NANOS = 200_000;
+    public static final long DEFAULT_ADVANCE_NANOS = 500_000;
     public static final long DISTRIBUTED_DEFAULT_ADVANCE_NANOS = 1_000_000L;
     private static final int WHEEL_SIZE = 1024;
     private static final int WHEEL_MASK = WHEEL_SIZE - 1;
@@ -66,6 +66,10 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
     }
     public HighPrecisionWheelTaskScheduler(int poolSize, ThreadFactory threadFactory) {
         this(Executors.newFixedThreadPool(poolSize, threadFactory), true);
+    }
+
+    public static HighPrecisionWheelTaskScheduler create(String threadNamePrefix) {
+        return new HighPrecisionWheelTaskScheduler(threadNamePrefix);
     }
 
     private static ExecutorService createOwnedExecutor(int poolSize, String threadNamePrefix) {
