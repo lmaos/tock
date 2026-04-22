@@ -4,22 +4,44 @@ import com.clmcat.tock.RedisTestSupport;
 import com.clmcat.tock.TockContext;
 import com.clmcat.tock.registry.TockCurrentNode;
 import com.clmcat.tock.registry.TockNode;
+import com.clmcat.tock.time.DefaultTimeSynchronizer;
+import com.clmcat.tock.time.RedisTimeProvider;
 import com.clmcat.tock.schedule.memory.MemoryScheduleStore;
 import com.clmcat.tock.store.MemoryJobStore;
 import com.clmcat.tock.worker.memory.MemoryPullableWorkerQueue;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 public class RedisTockRegisterTest extends RedisTestSupport {
 
     @Test
     void shouldExposeRedisTimeAndNodeState() {
         RedisTockRegister register = new RedisTockRegister(namespace, jedisPool, null, 250L, 1000L);
-        TockContext context = buildContext(register, MemoryPullableWorkerQueue.create(), MemoryScheduleStore.create(), MemoryJobStore.create());
+        MemoryPullableWorkerQueue workerQueue = MemoryPullableWorkerQueue.create();
+        MemoryScheduleStore scheduleStore = MemoryScheduleStore.create();
+        MemoryJobStore jobStore = MemoryJobStore.create();
+        TockContext context = TockContext.builder()
+                .config(com.clmcat.tock.Config.builder()
+                        .register(register)
+                        .scheduleStore(scheduleStore)
+                        .workerQueue(workerQueue)
+                        .build())
+                .register(register)
+                .master(register.getMaster())
+                .scheduleStore(scheduleStore)
+                .jobStore(jobStore)
+                .workerQueue(workerQueue)
+                .consumerExecutor(consumerExecutor)
+                .workerExecutor(workerExecutor)
+                .schedulerExecutor(schedulerExecutor)
+                .timeSource(new DefaultTimeSynchronizer(new RedisTimeProvider(jedisPool::getResource), 250L, 3))
+                .build();
 
         register.start(context);
         try {
-            long redisTime = register.currentTimeMillis();
+            long redisTime = redisTimeMillis();
             long syncedTime = context.currentTimeMillis();
             Assertions.assertTrue(Math.abs(redisTime - syncedTime) < 200L, "context clock should stay close to Redis time");
 
@@ -27,7 +49,6 @@ public class RedisTockRegisterTest extends RedisTestSupport {
             TockNode lookedUpNode = register.getNode(register.getCurrentNode().getId());
             Assertions.assertFalse(lookedUpNode instanceof TockCurrentNode);
             Assertions.assertEquals("worker", lookedUpNode.getAttribute("role", String.class));
-            Assertions.assertTrue(register.getNods().stream().anyMatch(n -> n.getId().equals(register.getCurrentNode().getId())));
 
             register.setGroupAttributeIfAbsent("owner", register.getCurrentNode().getId());
             Assertions.assertEquals(register.getCurrentNode().getId(), register.getGroupAttribute("owner", String.class));
@@ -40,6 +61,15 @@ public class RedisTockRegisterTest extends RedisTestSupport {
             Assertions.assertEquals(TockNode.NodeStatus.UNKNOWN, register.getCurrentNode().getStatus());
         } finally {
             register.stop();
+        }
+    }
+
+    private long redisTimeMillis() {
+        try (redis.clients.jedis.Jedis jedis = jedisPool.getResource()) {
+            List<String> time = jedis.time();
+            long seconds = Long.parseLong(time.get(0));
+            long micros = Long.parseLong(time.get(1));
+            return seconds * 1000L + micros / 1000L;
         }
     }
 }

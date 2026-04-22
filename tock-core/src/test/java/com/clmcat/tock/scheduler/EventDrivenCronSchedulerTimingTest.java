@@ -95,6 +95,11 @@ class EventDrivenCronSchedulerTimingTest {
         private final TockCurrentNode currentNode = new StubCurrentNode();
 
         @Override
+        public String getNamespace() {
+            return "";
+        }
+
+        @Override
         public TockMaster getMaster() {
             return master;
         }
@@ -412,10 +417,7 @@ class EventDrivenCronSchedulerTimingTest {
             return null;
         }
 
-        @Override
-        public long advanceNanos() {
-            return 0L;
-        }
+
 
         @Override
         public void start(TockContext context) {

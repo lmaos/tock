@@ -54,6 +54,11 @@ public class MemoryTockNodeTest {
         MemoryTockRegister register = new MemoryTockRegister("node-a", MemoryManager.create());
         return TockContext.builder()
                 .register(new TockRegister() {
+                    @Override
+                    public String getNamespace() {
+                        return "";
+                    }
+
                     @Override public com.clmcat.tock.registry.TockMaster getMaster() { return register.getMaster(); }
                     @Override public com.clmcat.tock.registry.TockCurrentNode getCurrentNode() { return register.getCurrentNode(); }
                     @Override public com.clmcat.tock.registry.TockNode getNode(String nodeId) { return null; }

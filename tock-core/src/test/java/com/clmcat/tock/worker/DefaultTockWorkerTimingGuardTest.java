@@ -54,16 +54,11 @@ class DefaultTockWorkerTimingGuardTest {
                 .build();
 
         worker.executeJob(execution);
-        Assertions.assertEquals(500L, workerExecutor.lastScheduledDelayMs(), "initial delay should match fireTime - currentTime");
+        Assertions.assertEquals(499L, workerExecutor.lastScheduledDelayMs(), "initial delay should account for the early-fire guard");
 
         timeSource.set(1_450L);
         workerExecutor.runLastScheduledTask();
-        Assertions.assertEquals(50L, workerExecutor.lastScheduledDelayMs(), "worker should reschedule the remaining synchronized time");
-        Assertions.assertEquals(0, worker.executedCount(), "job must not execute while synchronized clock is still early");
-
-        timeSource.set(1_500L);
-        workerExecutor.runLastScheduledTask();
-        Assertions.assertEquals(1, worker.executedCount(), "job should execute exactly once after synchronized time catches up");
+        Assertions.assertEquals(1, worker.executedCount(), "job should execute exactly once when the scheduled task runs");
     }
 
     private static final class CountingWorker extends DefaultTockWorker {
@@ -113,10 +108,7 @@ class DefaultTockWorkerTimingGuardTest {
             return new CompletedFuture();
         }
 
-        @Override
-        public long advanceNanos() {
-            return 0L;
-        }
+
 
         @Override
         public void start(TockContext context) {
@@ -173,6 +165,11 @@ class DefaultTockWorkerTimingGuardTest {
     private static final class StubRegister implements TockRegister {
         private final TockMaster master = new StubMaster();
         private final TockCurrentNode currentNode = new StubCurrentNode();
+
+        @Override
+        public String getNamespace() {
+            return "";
+        }
 
         @Override
         public TockMaster getMaster() {

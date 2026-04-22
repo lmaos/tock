@@ -24,6 +24,22 @@ public class DefaultTimeSynchronizerTest {
     }
 
     @Test
+    void shouldNotMarkSystemProviderAsRunning() {
+        TimeSyncBenchmarkSupport.FakeClock clock = new TimeSyncBenchmarkSupport.FakeClock(1_700_000_000_000L, 0L, 0L);
+        DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(
+                new SystemTimeProvider(),
+                100L,
+                1,
+                clock::currentTimeMillis,
+                clock::nanoTime
+        );
+
+        synchronizer.start(null);
+
+        Assertions.assertFalse(synchronizer.isRunning());
+    }
+
+    @Test
     void shouldIgnoreOscillatingRedisJitter() {
         TimeSyncBenchmarkSupport.FakeClock clock = new TimeSyncBenchmarkSupport.FakeClock(1_700_000_000_000L, 0L, 0L);
         DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(
