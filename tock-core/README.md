@@ -103,8 +103,17 @@ tock.shutdown();
 
 ## Redis 模式最小配置
 
+### 使用  RedisConfigBuilder 构造
+```java
 
-### 使用 Config.builder() 构建配置
+Config config = RedisConfigBuilder.builder("my-app")
+.withJedisPool(jedisPool)
+.withHighPrecisionWorker(true)
+.build();
+Tock tock = Tock.configure(config).start();
+```
+
+### 使用 Config.builder() 构建配置 - Config 更自由
 
 ```java
 JedisPool jedisPool = new JedisPool("127.0.0.1", 6379);
