@@ -10,6 +10,8 @@ import java.util.List;
  */
 public interface TockRegister extends Lifecycle {
 
+    String getNamespace();
+
     /**
      * 主机
      * @return

@@ -56,7 +56,8 @@ public class RedisTimerDemo {
                 .build());
 
         tock.registerJob("job1", (ctx)->{
-            System.out.println("Job executed at: " + tock.currentTimeMillis());
+            long l = tock.currentTimeMillis();
+            System.out.println("Job executed at: " + l);
         });
         tock.refreshSchedules();
         tock.sync();

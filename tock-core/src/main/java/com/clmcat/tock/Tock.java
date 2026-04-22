@@ -170,6 +170,8 @@ public class Tock {
         // Worker执行队列，必须存在
         Objects.requireNonNull(this.workerQueue, "workerQueue is null");
 
+        String namespace = register.getNamespace();
+
         this.master = this.register.getMaster();
         this.serializer = config.getSerializer();
         this.scheduler = config.getScheduler();
@@ -191,18 +193,11 @@ public class Tock {
         this.serializer = new VersionedSerializer(serializer);
         // 初始化时间提供者（优先级：显式配置 > 注册中心实现 > 系统默认）
         if (Objects.isNull(this.timeProvider)) {
-            if (this.register instanceof TimeProvider) {
-                this.timeProvider = (TimeProvider) this.register;
-                log.debug("TimeProvider not configured, automatically using register (implements TimeProvider) as time source: {}", this.register.getClass().getSimpleName());
-            } else {
-                this.timeProvider = new SystemTimeProvider();
-                log.debug("TimeProvider not configured and register does not implement TimeProvider, using SystemTimeProvider");
-            }
+            this.timeProvider = new SystemTimeProvider();
         }
         // 时间接口默认实现
         if (Objects.isNull(timeSynchronizer)) {
-            this.timeSynchronizer = new DefaultTimeSynchronizer(this.timeProvider);
-            log.debug("TimeSynchronizer not configured, using DefaultTimeSynchronizer with timeProvider: {}", this.timeProvider.getClass().getSimpleName());
+            this.timeSynchronizer = new DefaultTimeSynchronizer(this.timeProvider, 3000, 5);
         }
 
         if (Objects.isNull(this.scheduler)) {
@@ -215,13 +210,13 @@ public class Tock {
         }
 
         if (Objects.isNull(this.workerExecutor)) {
-            this.workerExecutor = new ScheduledExecutorTaskScheduler("tock-worker-thread");
+            this.workerExecutor = ScheduledExecutorTaskScheduler.create(namespace + "-worker");
         }
         if (Objects.isNull(this.consumerExecutor)) {
             this.consumerExecutor = Executors.newCachedThreadPool((r) -> {
                 Thread t = new Thread(r);
                 t.setDaemon(true);
-                t.setName("tock-consumer-thread");
+                t.setName(namespace + "-worker-consumer");
                 return t;
             });
         }
@@ -229,12 +224,11 @@ public class Tock {
             this.schedulerExecutor = Executors.newScheduledThreadPool(2, (r)->{
                 Thread t = new Thread(r);
                 t.setDaemon(true);
-                t.setName("tock-scheduler-thread");
+                t.setName(namespace + "-scheduler");
                 return t;
             });
         }
 
-        tuneWorkerExecutorForTimeSource();
 
 
         this.tockContext = TockContext.builder()
@@ -269,22 +263,22 @@ public class Tock {
         injectContext(scheduler, tockContext);
     }
 
-    private void tuneWorkerExecutorForTimeSource() {
-        if (!(workerExecutor instanceof HighPrecisionWheelTaskScheduler)) {
-            return;
-        }
-        if (timeProvider instanceof SystemTimeProvider) {
-            return;
-        }
-        HighPrecisionWheelTaskScheduler scheduler = (HighPrecisionWheelTaskScheduler) workerExecutor;
-        long before = scheduler.advanceNanos();
-        scheduler.applyDistributedDefaultAdvanceIfNeeded();
-        long after = scheduler.advanceNanos();
-        if (after != before) {
-            log.debug("Adjusted HighPrecisionWheelTaskScheduler advance from {}ns to {}ns for distributed time source {}",
-                    before, after, timeProvider.getClass().getSimpleName());
-        }
-    }
+//    private void tuneWorkerExecutorForTimeSource() {
+//        if (!(workerExecutor instanceof HighPrecisionWheelTaskScheduler)) {
+//            return;
+//        }
+//        if (timeProvider instanceof SystemTimeProvider) {
+//            return;
+//        }
+//        HighPrecisionWheelTaskScheduler scheduler = (HighPrecisionWheelTaskScheduler) workerExecutor;
+//        long before = scheduler.advanceNanos();
+//        scheduler.applyDistributedDefaultAdvanceIfNeeded();
+//        long after = scheduler.advanceNanos();
+//        if (after != before) {
+//            log.debug("Adjusted HighPrecisionWheelTaskScheduler advance from {}ns to {}ns for distributed time source {}",
+//                    before, after, timeProvider.getClass().getSimpleName());
+//        }
+//    }
 
 
     private void injectContext(Object component, TockContext context) {

@@ -164,36 +164,25 @@ public class DefaultTockWorker implements TockWorker {
         trackPendingExecution(jobExecution);
         long now = context.currentTimeMillis();
         long nextFireTime = jobExecution.getNextFireTime();
-        long delay = Math.max(nextFireTime - now, 0);
-        onExecutionReceived(jobExecution, now, nextFireTime, delay);
+        long delayNs = (Math.max(nextFireTime - now, 0) * 1_000_000) - 500_000;
+        onExecutionReceived(jobExecution, now, nextFireTime, delayNs);
 
         log.debug("executeJob({}), currentTime: {}, registerSyncTime:{}, fireTime:{}, (delay:{} ms)", jobExecution.getExecutionId(),
-                System.currentTimeMillis(), context.currentTimeMillis(), nextFireTime, delay);
+                System.currentTimeMillis(), context.currentTimeMillis(), nextFireTime, delayNs / 1_000_000);
 
-        if (delay <= 0) {
-            onExecutionScheduled(jobExecution, delay, true);
+        if (delayNs <= 0) {
+            onExecutionScheduled(jobExecution, delayNs, true);
             Future<?> future = context.getWorkerExecutor().submit(() -> executeWhenDue(jobExecution));
             trackExecutionFuture(jobExecution, future);
         } else {
-            onExecutionScheduled(jobExecution, delay, false);
-            Future<?> schedule = context.getWorkerExecutor()
-                    .schedule(() -> executeWhenDue(jobExecution), delay, TimeUnit.MILLISECONDS);
+            onExecutionScheduled(jobExecution, delayNs, false);
+            Future<?> schedule = context.getWorkerExecutor().schedule(() -> executeWhenDue(jobExecution), delayNs, TimeUnit.NANOSECONDS);
             trackExecutionFuture(jobExecution, schedule);
         }
     }
 
     private void executeWhenDue(JobExecution jobExecution) {
         if (!running) {
-            return;
-        }
-        long remaining = jobExecution.getNextFireTime() - context.currentTimeMillis();
-        onScheduledCallback(jobExecution, remaining);
-        if (remaining > 0L) {
-            onExecutionRescheduled(jobExecution, remaining);
-            onExecutionScheduled(jobExecution, remaining, false);
-            Future<?> schedule = context.getWorkerExecutor()
-                    .schedule(() -> executeWhenDue(jobExecution), remaining, TimeUnit.MILLISECONDS);
-            trackExecutionFuture(jobExecution, schedule);
             return;
         }
         onExecutionDue(jobExecution, context.currentTimeMillis());
@@ -208,12 +197,21 @@ public class DefaultTockWorker implements TockWorker {
     void doExecuteJob(JobExecution jobExecution) {
         String scheduleId = jobExecution.getScheduleId();
         String executionId = jobExecution.getExecutionId();
-        log.debug("doExecuteJob({}), currentTime: {}, registerSyncTime:{}" , executionId, System.currentTimeMillis(), context.currentTimeMillis());
+        long nextFireTime = jobExecution.getNextFireTime();
+        long currentTimeMillis = context.currentTimeMillis();
+        log.debug("doExecuteJob({})-0, syncTime:{}, fireTime:{}" , executionId, currentTimeMillis, nextFireTime);
 
         String jobId = jobExecution.getJobId();
         String workerGroup = jobExecution.getWorkerGroup();
         String nodeId = register.getCurrentNode().getId(); // 当前节点ID
         String workerGroupScheduleId = WorkerExecutionKeys.activeKey(workerGroup, scheduleId);
+
+        JobExecutor jobExecutor = jobRegistry.get(jobId);
+        if (jobExecutor == null) {
+            log.error("DefaultTockWorker jobExecutor is null, jobId: {}", jobId);
+            return;
+        }
+
         if (!register.setGroupAttributeIfAbsent(workerGroupScheduleId, new WorkerExecutionLease(nodeId, executionId))) {
             clearPendingExecution(jobExecution);
             removeScheduledExecution(jobExecution);
@@ -226,24 +224,21 @@ public class DefaultTockWorker implements TockWorker {
         }
 
         try {
+            log.debug("doExecuteJob({})-2, syncTime:{}, fireTime:{}" , executionId, context.currentTimeMillis(), nextFireTime);
             register.setNodeAttributeIfAbsent(workerGroupScheduleId, jobExecution);
             clearPendingExecution(jobExecution);
-            if (!isExecutionStillValid(jobExecution)) {
-                return;
-            }
+            log.debug("doExecuteJob({})-3, syncTime:{}, fireTime:{}" , executionId, context.currentTimeMillis(), nextFireTime);
+            // long remaining = jobExecution.getNextFireTime() - context.currentTimeMillis();
+
             JobContext jobContext = JobContext.builder()
                     .scheduleId(scheduleId)
                     .jobId(jobId)
-                    .scheduledTime(jobExecution.getNextFireTime())
-                    .actualFireTime(context.currentTimeMillis())
+                    .scheduledTime(nextFireTime)
+                    .actualFireTime(currentTimeMillis)
                     .params(jobExecution.getParams()).build();
 
-            JobExecutor jobExecutor = jobRegistry.get(jobId);
-            if (jobExecutor != null) {
-                jobExecutor.execute(jobContext);
-            } else {
-                log.error("DefaultTockWorker jobExecutor is null, jobId: {}", jobId);
-            }
+
+            jobExecutor.execute(jobContext);
         } catch (Exception e) {
             log.error("DefaultTockWorker jobExecutor exception, jobExecution: {}", jobExecution, e);
         } finally {
@@ -272,8 +267,9 @@ public class DefaultTockWorker implements TockWorker {
         requeueGroupExecutions(groupName);
     }
 
+    ///  标记等待执行， 已经接受了任务
     private void trackPendingExecution(JobExecution jobExecution) {
-        if (!isPendingRecoveryEnabled()) {
+        if (!isPendingRecoveryEnabled()) { // config 需要配置 true
             return;
         }
         pendingExecutions.computeIfAbsent(jobExecution.getWorkerGroup(), k -> new ConcurrentHashMap<>())
@@ -330,9 +326,7 @@ public class DefaultTockWorker implements TockWorker {
             if (future != null) {
                 future.cancel(true);
             }
-            if (isExecutionStillValid(execution)) {
-                workerQueue.push(execution, groupName);
-            }
+            workerQueue.push(execution, groupName);
         }
         if (futures != null) {
             futures.values().forEach(f -> f.cancel(true));

@@ -18,53 +18,53 @@ class TockHighPrecisionTuningTest {
         Tock.resetForTest();
     }
 
-    @Test
-    void shouldApplyDistributedAdvanceToDefaultHighPrecisionScheduler() {
-        HighPrecisionWheelTaskScheduler workerExecutor = TaskSchedulers.highPrecision("test-worker");
-        Config config = Config.builder()
-                .register(new MemoryTockRegister("tuning-default", MemoryManager.create()))
-                .scheduleStore(MemoryScheduleStore.create())
-                .workerQueue(MemoryPullableWorkerQueue.create())
-                .workerExecutor(workerExecutor)
-                .timeProvider(new RemoteLikeTimeProvider())
-                .build();
+//    @Test 测试作废 已经失去这个功能；
+//    void shouldApplyDistributedAdvanceToDefaultHighPrecisionScheduler() {
+//        HighPrecisionWheelTaskScheduler workerExecutor = TaskSchedulers.highPrecision("test-worker");
+//        Config config = Config.builder()
+//                .register(new MemoryTockRegister("tuning-default", MemoryManager.create()))
+//                .scheduleStore(MemoryScheduleStore.create())
+//                .workerQueue(MemoryPullableWorkerQueue.create())
+//                .workerExecutor(workerExecutor)
+//                .timeProvider(new RemoteLikeTimeProvider())
+//                .build();
+//
+//        Tock.configure(config);
+//
+//        Assertions.assertEquals(HighPrecisionWheelTaskScheduler.DISTRIBUTED_DEFAULT_ADVANCE_NANOS, workerExecutor.advanceNanos());
+//    }
 
-        Tock.configure(config);
+//    @Test
+//    void shouldKeepExplicitHighPrecisionAdvanceUntouched() {
+//        HighPrecisionWheelTaskScheduler workerExecutor = TaskSchedulers.highPrecision("test-worker");
+//        workerExecutor.setAdvanceNanos(2_000_000L);
+//        Config config = Config.builder()
+//                .register(new MemoryTockRegister("tuning-custom", MemoryManager.create()))
+//                .scheduleStore(MemoryScheduleStore.create())
+//                .workerQueue(MemoryPullableWorkerQueue.create())
+//                .workerExecutor(workerExecutor)
+//                .timeProvider(new RemoteLikeTimeProvider())
+//                .build();
+//
+//        Tock.configure(config);
+//
+//        Assertions.assertEquals(2_000_000L, workerExecutor.advanceNanos());
+//    }
 
-        Assertions.assertEquals(HighPrecisionWheelTaskScheduler.DISTRIBUTED_DEFAULT_ADVANCE_NANOS, workerExecutor.advanceNanos());
-    }
-
-    @Test
-    void shouldKeepExplicitHighPrecisionAdvanceUntouched() {
-        HighPrecisionWheelTaskScheduler workerExecutor = TaskSchedulers.highPrecision("test-worker");
-        workerExecutor.setAdvanceNanos(2_000_000L);
-        Config config = Config.builder()
-                .register(new MemoryTockRegister("tuning-custom", MemoryManager.create()))
-                .scheduleStore(MemoryScheduleStore.create())
-                .workerQueue(MemoryPullableWorkerQueue.create())
-                .workerExecutor(workerExecutor)
-                .timeProvider(new RemoteLikeTimeProvider())
-                .build();
-
-        Tock.configure(config);
-
-        Assertions.assertEquals(2_000_000L, workerExecutor.advanceNanos());
-    }
-
-    @Test
-    void shouldKeepLocalDefaultAdvanceForSystemTime() {
-        HighPrecisionWheelTaskScheduler workerExecutor = TaskSchedulers.highPrecision("test-worker");
-        Config config = Config.builder()
-                .register(new MemoryTockRegister("tuning-system", MemoryManager.create()))
-                .scheduleStore(MemoryScheduleStore.create())
-                .workerQueue(MemoryPullableWorkerQueue.create())
-                .workerExecutor(workerExecutor)
-                .build();
-
-        Tock.configure(config);
-
-        Assertions.assertEquals(HighPrecisionWheelTaskScheduler.DEFAULT_ADVANCE_NANOS, workerExecutor.advanceNanos());
-    }
+//    @Test
+//    void shouldKeepLocalDefaultAdvanceForSystemTime() {
+//        HighPrecisionWheelTaskScheduler workerExecutor = TaskSchedulers.highPrecision("test-worker");
+//        Config config = Config.builder()
+//                .register(new MemoryTockRegister("tuning-system", MemoryManager.create()))
+//                .scheduleStore(MemoryScheduleStore.create())
+//                .workerQueue(MemoryPullableWorkerQueue.create())
+//                .workerExecutor(workerExecutor)
+//                .build();
+//
+//        Tock.configure(config);
+//
+//        Assertions.assertEquals(HighPrecisionWheelTaskScheduler.DEFAULT_ADVANCE_NANOS, workerExecutor.advanceNanos());
+//    }
 
     private static final class RemoteLikeTimeProvider implements TimeProvider {
         @Override

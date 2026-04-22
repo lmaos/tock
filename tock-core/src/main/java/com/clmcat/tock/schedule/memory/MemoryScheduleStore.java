@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.Objects;
 
 public class MemoryScheduleStore implements ScheduleStore {
-    private final ConcurrentMap<String, ScheduleConfig> store = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, ScheduleConfig> store = new ConcurrentHashMap<>(128);
     private final AtomicLong version = new AtomicLong(0);
 
 

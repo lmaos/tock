@@ -11,6 +11,7 @@ import com.clmcat.tock.schedule.memory.MemoryScheduleStore;
 import com.clmcat.tock.store.JobExecution;
 import com.clmcat.tock.store.MemoryJobStore;
 import com.clmcat.tock.time.DefaultTimeSynchronizer;
+import com.clmcat.tock.time.RedisTimeProvider;
 import com.clmcat.tock.worker.DefaultTockWorker;
 import com.clmcat.tock.worker.WorkerExecutionKeys;
 import com.clmcat.tock.worker.scheduler.ScheduledExecutorTaskScheduler;
@@ -81,7 +82,7 @@ public class RedisWorkerRecoveryTest extends RedisTestSupport {
                     .executionId("exec-1")
                     .scheduleId("schedule-1")
                     .jobId("job-1")
-                    .nextFireTime(register1.currentTimeMillis() + 2000L)
+                    .nextFireTime(context1.currentTimeMillis() + 2000L)
                     .workerGroup("default")
                     .scheduleFingerprint(ScheduleExecutionGuard.fingerprint(scheduleConfig))
                     .params(Collections.emptyMap())
@@ -138,7 +139,7 @@ public class RedisWorkerRecoveryTest extends RedisTestSupport {
                 .consumerExecutor(consumerExecutor)
                 .workerExecutor(workerExecutor)
                 .schedulerExecutor(schedulerExecutor)
-                .timeSource(new DefaultTimeSynchronizer(register, 100L, 3))
+                .timeSource(new DefaultTimeSynchronizer(new RedisTimeProvider(jedisPool::getResource), 100L, 3))
                 .build();
     }
 

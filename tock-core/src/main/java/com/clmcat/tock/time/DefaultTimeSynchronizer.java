@@ -51,25 +51,43 @@ import java.util.function.LongSupplier;
 @Slf4j
 public class DefaultTimeSynchronizer implements TimeSynchronizer {
 
+    /** 默认同步间隔：1 秒 */
     private static final long DEFAULT_SYNC_INTERVAL_MS = 1000L;
+    /** 默认每次同步的采样次数 */
     private static final int DEFAULT_SAMPLE_COUNT = 3;
+    /** 偏移量变化超过此阈值时记录警告日志 */
     private static final long LARGE_OFFSET_WARN_MS = 1000L;
+    /** 偏移量单次调整的最大步长（毫秒），用于平滑跳变 */
     private static final long MAX_OFFSET_ADJUST_STEP_MS = 5L;
 
+    /** 是否使用系统时间提供者（本地时间），若为 true 则不进行远程同步 */
     private final boolean isSystemTimeProvider;
+    /** 远程时间源（如 Redis） */
     private final TimeProvider timeProvider;
+    /** 实际使用的同步间隔（毫秒） */
     private final long syncIntervalMs;
+    /** 每次同步的采样次数 */
     private final int sampleCount;
+    /** 提供当前系统毫秒时间（墙钟）的供应器 */
     private final LongSupplier wallClockMsSupplier;
+    /** 提供当前单调纳秒时间的供应器 */
     private final LongSupplier nanoTimeSupplier;
+    /** 基准锚点：本地墙钟毫秒 */
     private final long monotonicBaseWallClockMs;
+    /** 基准锚点：对应的单调纳秒时间 */
     private final long monotonicBaseNanoTime;
+    /** 当前应用的偏移量（毫秒），对外时间 = 单调本地时间 + offsetMs */
     private final AtomicLong offsetMs = new AtomicLong(0L);
+    /** 上一次返回的时间戳，用于保证单调递增 */
     private final AtomicLong lastReturnedTimeMs = new AtomicLong(Long.MIN_VALUE);
+    /** 偏移量是否已经过首次初始化 */
     private final AtomicBoolean offsetInitialized = new AtomicBoolean(false);
+    /** 同步器是否正在运行 */
     private final AtomicBoolean running = new AtomicBoolean(false);
 
+    /** 执行周期性同步的调度线程池 */
     private ScheduledExecutorService scheduler;
+    /** 周期性同步任务的 Future，用于取消 */
     private ScheduledFuture<?> future;
 
     public DefaultTimeSynchronizer() {
@@ -98,6 +116,13 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         syncNow();
     }
 
+    /**
+     * 获取经过同步和单调性保护后的当前时间戳（毫秒）。
+     * <p>
+     * 实现公式：adjusted = monotonicTimeMillis() + offsetMs。
+     * 再通过 CAS 保证返回值不会小于之前的调用结果，即使底层 offsetMs 意外减小。
+     * </p>
+     */
     @Override
     public long currentTimeMillis() {
         long adjusted = monotonicTimeMillis();
@@ -118,6 +143,20 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         return offsetMs.get();
     }
 
+    /**
+     * 执行一次同步采样，更新内部偏移量。
+     * <p>
+     * 采样过程：
+     * <ol>
+     *   <li>进行 sampleCount 次采样，每次记录 RTT 中点对应的本地单调毫秒时间，与远程时间比较得到样本偏移。</li>
+     *   <li>选择 RTT 最小的样本作为最佳偏移，以提高抗网络抖动能力。</li>
+     *   <li>调用 stabilizeOffset 对偏移量进行平滑处理，避免突变。</li>
+     *   <li>更新 offsetMs，并记录显著变化。</li>
+     * </ol>
+     * </p>
+     *
+     * @return 本次同步后应用的新偏移量
+     */
     public synchronized long syncNow() {
 
         if (isSystemTimeProvider) {
@@ -134,14 +173,14 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
                 long localStartNs = nanoTimeSupplier.getAsLong();
                 long remoteTimeMs = timeProvider.currentTimeMillis();
                 long localEndNs = nanoTimeSupplier.getAsLong();
-                long rttNs = localEndNs - localStartNs;
-                long midpointLocalNs = localStartNs + (rttNs / 2L);
-                long midpointLocalMs = monotonicTimeMillisAt(midpointLocalNs);
-                long sampleOffset = remoteTimeMs - midpointLocalMs;
+                long rttNs = localEndNs - localStartNs; // 本地请求的 RTT 纳秒时间
+                long midpointLocalNs = localStartNs + (rttNs / 2L); // 当前纳秒
+                long midpointLocalMs = monotonicTimeMillisAt(midpointLocalNs); // 当前毫秒 monotonicBaseWallClockMs + TimeUnit.NANOSECONDS.toMillis(nanoTime - monotonicBaseNanoTime);
+                long sampleOffset = remoteTimeMs - midpointLocalMs; // 远程时间 - 当前毫秒 = 偏移
                 totalOffset += sampleOffset;
-                if (rttNs < bestRttNs) {
+                if (rttNs < bestRttNs) { // 选择最小的 RTT 样本作为最佳偏移
                     bestRttNs = rttNs;
-                    bestOffset = sampleOffset;
+                    bestOffset = sampleOffset; // 最佳偏移值
                 }
                 successCount++;
             } catch (RuntimeException e) {
@@ -154,10 +193,10 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
             return offsetMs.get();
         }
 
-        long averageOffset = Math.round(totalOffset / (double) successCount);
-        long oldOffset = offsetMs.get();
-        long newOffset = stabilizeOffset(oldOffset, bestOffset, bestRttNs);
-        offsetMs.set(newOffset);
+        long averageOffset = Math.round(totalOffset / (double) successCount); // 平均偏移
+        long oldOffset = offsetMs.get(); // 历史偏移
+        long newOffset = stabilizeOffset(oldOffset, bestOffset, bestRttNs); // 新的偏移
+        offsetMs.set(newOffset); // 设置
         if (Math.abs(newOffset - oldOffset) >= LARGE_OFFSET_WARN_MS) {
             log.warn("Large time offset change detected: old={}ms, new={}ms, avg={}ms, bestRtt={}ns",
                     oldOffset, newOffset, averageOffset, bestRttNs);
@@ -165,6 +204,14 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         return newOffset;
     }
 
+    /**
+     * 启动后台周期性同步任务。
+     * <p>
+     * 注意：若时间提供者为 {@link SystemTimeProvider}，则不会启动任何后台线程，所有同步操作均为空操作。
+     * </p>
+     *
+     * @param context Tock 上下文（未使用，保留扩展）
+     */
     @Override
     public synchronized void start(TockContext context) {
         if (!running.compareAndSet(false, true)) {
@@ -221,19 +268,51 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     private long monotonicTimeMillisAt(long nanoTime) {
         return monotonicBaseWallClockMs + TimeUnit.NANOSECONDS.toMillis(nanoTime - monotonicBaseNanoTime);
     }
-
+    /**
+     * 计算基于锚点的本地单调毫秒时间。
+     * <p>
+     * 原理：monotonicBaseWallClockMs + (currentNanoTime - monotonicBaseNanoTime) 的毫秒转换。
+     * 该时间不受系统墙钟跳变影响，严格单调递增（前提是 nanoTime 单调）。
+     * </p>
+     */
     private static MonotonicAnchor captureMonotonicAnchor(LongSupplier wallClockMsSupplier, LongSupplier nanoTimeSupplier) {
         long startNs = nanoTimeSupplier.getAsLong();
         long wallClockMs = wallClockMsSupplier.getAsLong();
         long endNs = nanoTimeSupplier.getAsLong();
         return new MonotonicAnchor(wallClockMs, startNs + ((endNs - startNs) / 2L));
     }
-
+    /**
+     * 偏移量稳定化处理。
+     * <p>
+     * 主要目的：防止因网络瞬时抖动或远程时间跳变导致的偏移量剧烈变化，从而避免对外时间出现大幅波动。
+     * </p>
+     * <p>
+     * 策略：
+     * <ul>
+     *   <li>首次采样直接采用，不做限幅。</li>
+     *   <li>后续采样，若变化幅度在 MAX_OFFSET_ADJUST_STEP_MS 内，则直接应用新偏移。</li>
+     *   <li>否则，进行限幅：每次最多向目标方向调整 MAX_OFFSET_ADJUST_STEP_MS。</li>
+     *   <li><b>关于负向调整（sampledOffset < currentOffset）的处理：</b>
+     *       理想情况下，为保证绝对单调性，应禁止负向调整（即保持当前偏移量不变）。
+     *       但当前分布式环境（如 Redis 时钟漂移）中，若远程时间确实落后于本地，
+     *       长期禁止负向调整会导致同步时间持续快于远程时间，可能累积较大偏差。
+     *       因此暂时保留双向限幅，通过步长控制来缓冲负向跳变的影响。
+     *       代码中保留了负向禁止的注释分支，可根据实际运维策略启用。
+     *   </li>
+     * </ul>
+     * </p>
+     *
+     * @param currentOffset 当前偏移量
+     * @param sampledOffset 本次采样计算出的原始偏移量（最小 RTT 样本）
+     * @param bestRttNs     最小 RTT 值（纳秒），仅用于日志
+     * @return 经过平滑处理后的新偏移量
+     */
     private long stabilizeOffset(long currentOffset, long sampledOffset, long bestRttNs) {
         if (offsetInitialized.compareAndSet(false, true)) {
             return sampledOffset;
         }
         long delta = sampledOffset - currentOffset;
+        log.info("Old offset: {}, New Offset: {}", currentOffset, sampledOffset);
         if (Math.abs(delta) <= MAX_OFFSET_ADJUST_STEP_MS) {
             return sampledOffset;
         }

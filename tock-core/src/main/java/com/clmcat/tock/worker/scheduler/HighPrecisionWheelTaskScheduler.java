@@ -18,8 +18,6 @@ import java.util.concurrent.locks.LockSupport;
  */
 @Slf4j
 public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
-    public static final long DEFAULT_ADVANCE_NANOS = 500_000;
-    public static final long DISTRIBUTED_DEFAULT_ADVANCE_NANOS = 1_000_000L;
     private static final int WHEEL_SIZE = 1024;
     private static final int WHEEL_MASK = WHEEL_SIZE - 1;
     private static final int WHEEL_BITS = 10;
@@ -37,7 +35,6 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
     private volatile long baseTimeNanos;
     private volatile long nextTickDeadlineNanos;
 
-    private long advanceNanos = DEFAULT_ADVANCE_NANOS;
     private volatile boolean advanceCustomized;
 
     public HighPrecisionWheelTaskScheduler() {
@@ -88,7 +85,7 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
         Objects.requireNonNull(task, "task");
         Objects.requireNonNull(unit, "unit");
         long delayNanos = unit.toNanos(delay);
-        delayNanos = Math.max(0, delayNanos - advanceNanos);
+//        delayNanos = Math.max(0, delayNanos - advanceNanos);
         if (delayNanos <= 0L) {
             return submit(task);
         }
@@ -142,26 +139,22 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
         return executor.submit(task);
     }
 
-    @Override
-    public long advanceNanos() {
-        return advanceNanos;
-    }
 
-    public void setAdvanceNanos(long advanceNanos) {
-        this.advanceNanos = Math.max(0L, advanceNanos);
-        this.advanceCustomized = true;
-    }
+//    public void setAdvanceNanos(long advanceNanos) {
+//        this.advanceNanos = Math.max(0L, advanceNanos);
+//        this.advanceCustomized = true;
+//    }
 
-    public boolean isAdvanceCustomized() {
-        return advanceCustomized;
-    }
+//    public boolean isAdvanceCustomized() {
+//        return advanceCustomized;
+//    }
 
-    public void applyDistributedDefaultAdvanceIfNeeded() {
-        if (advanceCustomized) {
-            return;
-        }
-        this.advanceNanos = DISTRIBUTED_DEFAULT_ADVANCE_NANOS;
-    }
+//    public void applyDistributedDefaultAdvanceIfNeeded() {
+//        if (advanceCustomized) {
+//            return;
+//        }
+//        this.advanceNanos = DISTRIBUTED_DEFAULT_ADVANCE_NANOS;
+//    }
 
     @Override
     public void start(TockContext context) {

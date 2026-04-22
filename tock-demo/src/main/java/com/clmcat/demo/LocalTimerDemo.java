@@ -6,9 +6,6 @@ import com.clmcat.tock.builders.MemoryConfigBuilder;
 import com.clmcat.tock.money.MemoryManager;
 import com.clmcat.tock.registry.memory.MemoryTockRegister;
 import com.clmcat.tock.schedule.ScheduleConfig;
-import com.clmcat.tock.schedule.memory.MemoryScheduleStore;
-import com.clmcat.tock.worker.memory.MemorySubscribableWorkerQueue;
-import com.clmcat.tock.worker.scheduler.TaskSchedulers;
 
 public class LocalTimerDemo {
 

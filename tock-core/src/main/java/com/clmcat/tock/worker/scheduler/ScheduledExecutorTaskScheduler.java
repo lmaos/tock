@@ -8,9 +8,7 @@ import java.util.concurrent.*;
 public class ScheduledExecutorTaskScheduler implements TaskScheduler {
 
     private ScheduledExecutorService  scheduledExecutorService;
-    public static final long DEFAULT_ADVANCE_NANOS = 1_000_000L;
-    @Setter
-    private long advanceNanos = DEFAULT_ADVANCE_NANOS;
+
     public ScheduledExecutorTaskScheduler(ScheduledExecutorService scheduledExecutorService) {
         this.scheduledExecutorService = scheduledExecutorService;
     }
@@ -37,18 +35,12 @@ public class ScheduledExecutorTaskScheduler implements TaskScheduler {
     @Override
     public ScheduledFuture<?> schedule(Runnable task, long delay, TimeUnit unit) {
         long delayNanos = unit.toNanos(delay);
-        long adjusted = Math.max(0, delayNanos - advanceNanos);
-        return scheduledExecutorService.schedule(task, adjusted, TimeUnit.NANOSECONDS);
+        return scheduledExecutorService.schedule(task, delayNanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
     public Future<?> submit(Runnable task) {
         return scheduledExecutorService.submit(task);
-    }
-
-    @Override
-    public long advanceNanos() {
-        return advanceNanos;
     }
 
     @Override

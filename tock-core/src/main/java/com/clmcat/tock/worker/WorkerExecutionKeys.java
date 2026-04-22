@@ -14,7 +14,13 @@ public final class WorkerExecutionKeys {
     }
 
     public static String activeKey(String workerGroup, String scheduleId) {
-        return ACTIVE_PREFIX + workerGroup + "." + scheduleId;
+        StringBuilder sb = new StringBuilder(256);
+        sb.append(ACTIVE_PREFIX);
+        sb.append(workerGroup);
+        sb.append(".");
+        sb.append(scheduleId);
+
+        return sb.toString();
     }
 
     public static String pendingKey(JobExecution execution) {
@@ -22,7 +28,14 @@ public final class WorkerExecutionKeys {
     }
 
     public static String pendingKey(String workerGroup, String scheduleId, String executionId) {
-        return PENDING_PREFIX + workerGroup + "." + scheduleId + "." + executionId;
+        StringBuilder sb = new StringBuilder(256);
+        sb.append(PENDING_PREFIX);
+        sb.append(workerGroup);
+        sb.append(".");
+        sb.append(scheduleId);
+        sb.append(".");
+        sb.append(executionId);
+        return sb.toString();
     }
 
     public static boolean isActiveKey(String key) {

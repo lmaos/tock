@@ -21,15 +21,17 @@ public class MemoryTockRegister implements TockRegister {
     private TockContext tockContext;
 
     private boolean running = false;
+    private String namespace;
 
-    public MemoryTockRegister(String name, MemoryManager memoryManager) {
-        this.master = new MemoryTockMaster(name, memoryManager);
-        this.currentNode = new MemoryTockNode(name, memoryManager);
+    public MemoryTockRegister(String namespace, MemoryManager memoryManager) {
+        this.master = new MemoryTockMaster(namespace, memoryManager);
+        this.currentNode = new MemoryTockNode(namespace, memoryManager);
         this.memoryManager = memoryManager;
+        this.namespace = namespace;
     }
 
-    public static MemoryTockRegister create(String name, MemoryManager memoryManager) {
-        return new MemoryTockRegister(name, memoryManager);
+    public static MemoryTockRegister create(String namespace, MemoryManager memoryManager) {
+        return new MemoryTockRegister(namespace, memoryManager);
     }
 
 

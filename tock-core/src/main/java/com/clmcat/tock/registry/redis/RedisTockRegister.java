@@ -7,15 +7,12 @@ import com.clmcat.tock.registry.TockNode;
 import com.clmcat.tock.registry.TockRegister;
 import com.clmcat.tock.redis.RedisSupport;
 import com.clmcat.tock.serialize.Serializer;
-import com.clmcat.tock.time.TimeProvider;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -28,13 +25,13 @@ import java.util.stream.Collectors;
  * </p>
  */
 @Slf4j
-public class RedisTockRegister extends RedisSupport implements TockRegister, TimeProvider {
+public class RedisTockRegister extends RedisSupport implements TockRegister {
 
     private static final String RUNTIME_STATES = "runtime:states";
     private static final String GROUP_ATTRS = "group:attrs";
     private static final String NODE_INDEX = "nodes:index";
-
-    private final String name;
+@Getter
+    private final String namespace;
     private final boolean ownPool;
     private final long leaseTimeoutMs;
     private final long heartbeatIntervalMs;
@@ -42,7 +39,7 @@ public class RedisTockRegister extends RedisSupport implements TockRegister, Tim
     private final RedisTockCurrentNode currentNode;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final Object timeJedisMonitor = new Object();
-    private volatile TockContext tockContext;
+    private volatile TockContext context;
     private volatile Jedis timeJedis;
 
     public RedisTockRegister(String namespace, JedisPool jedisPool) {
@@ -57,14 +54,14 @@ public class RedisTockRegister extends RedisSupport implements TockRegister, Tim
         this(namespace, jedisPool, serializer, leaseTimeoutMs, heartbeatIntervalMs, false);
     }
 
-    public RedisTockRegister(String name, JedisPool jedisPool, Serializer serializer, long leaseTimeoutMs, long heartbeatIntervalMs, boolean ownPool) {
-        super(prefix(name), jedisPool, serializer);
-        this.name = name;
+    public RedisTockRegister(String namespace, JedisPool jedisPool, Serializer serializer, long leaseTimeoutMs, long heartbeatIntervalMs, boolean ownPool) {
+        super(prefix(namespace), jedisPool, serializer);
+        this.namespace = namespace;
         this.ownPool = ownPool;
         this.leaseTimeoutMs = leaseTimeoutMs <= 0 ? 3000L : leaseTimeoutMs;
         this.heartbeatIntervalMs = heartbeatIntervalMs <= 0 ? 1000L : heartbeatIntervalMs;
-        this.currentNode = new RedisTockCurrentNode(namespace, jedisPool, serializer, name, java.util.UUID.randomUUID().toString(), this.leaseTimeoutMs, this.heartbeatIntervalMs);
-        this.master = new RedisTockMaster(namespace, jedisPool, serializer, name, this.leaseTimeoutMs, this.heartbeatIntervalMs);
+        this.currentNode = new RedisTockCurrentNode(this.namespace, jedisPool, serializer, namespace, UUID.randomUUID().toString(), this.leaseTimeoutMs, this.heartbeatIntervalMs);
+        this.master = new RedisTockMaster(this.namespace, jedisPool, serializer, namespace, this.leaseTimeoutMs, this.heartbeatIntervalMs);
     }
 
     @Override
@@ -80,9 +77,9 @@ public class RedisTockRegister extends RedisSupport implements TockRegister, Tim
     @Override
     public TockNode getNode(String nodeId) {
         if (currentNode.getId().equals(nodeId)) {
-            return new RedisTockNode(namespace, jedisPool, serializer, name, nodeId, leaseTimeoutMs, heartbeatIntervalMs, this::currentTimeMillis);
+            return new RedisTockNode(namespace, jedisPool, serializer, namespace, nodeId, leaseTimeoutMs, heartbeatIntervalMs, context::currentTimeMillis);
         }
-        return new RedisTockNode(namespace, jedisPool, serializer, name, nodeId, leaseTimeoutMs, heartbeatIntervalMs, this::currentTimeMillis);
+        return new RedisTockNode(namespace, jedisPool, serializer, namespace, nodeId, leaseTimeoutMs, heartbeatIntervalMs, context::currentTimeMillis);
     }
 
     @Override
@@ -99,7 +96,7 @@ public class RedisTockRegister extends RedisSupport implements TockRegister, Tim
 
     @Override
     public List<TockNode> getExpiredNodes() {
-        long now = currentTimeMillis();
+        long now = context.currentTimeMillis();
         long cutoff = now - leaseTimeoutMs;
         return withJedis(jedis -> {
             List<String> nodeIds = new ArrayList<>(jedis.zrangeByScore(nodeIndexKey(), 0, cutoff));
@@ -184,7 +181,7 @@ public class RedisTockRegister extends RedisSupport implements TockRegister, Tim
     @Override
     public void start(TockContext context) {
         if (!running.compareAndSet(false, true)) return;
-        this.tockContext = context;
+        this.context = context;
         // 先启动节点，再启动主机，这样主机选举能直接拿到当前节点 ID。
         currentNode.start(context);
         master.start(context);
@@ -206,25 +203,6 @@ public class RedisTockRegister extends RedisSupport implements TockRegister, Tim
         return running.get();
     }
 
-    @Override
-    public long currentTimeMillis() {
-        synchronized (timeJedisMonitor) {
-            RuntimeException lastError = null;
-            for (int attempt = 0; attempt < 2; attempt++) {
-                Jedis jedis = ensureTimeJedis();
-                try {
-                    List<String> time = jedis.time();
-                    long seconds = Long.parseLong(time.get(0));
-                    long micros = Long.parseLong(time.get(1));
-                    return seconds * 1000L + micros / 1000L;
-                } catch (RuntimeException e) {
-                    lastError = e;
-                    closeTimeJedis();
-                }
-            }
-            throw lastError == null ? new IllegalStateException("Redis TIME failed without exception") : lastError;
-        }
-    }
 
     private Jedis ensureTimeJedis() {
         if (timeJedis == null) {
