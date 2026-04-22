@@ -62,9 +62,8 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
     @Override
     public void start(TockContext context) {
         if (running) return;
-        if (scheduleStore == null) setTockContext(context);
         running = true;
-        this.context = context;
+        setTockContext(context);
 
         // 默认先进行执行。
         startWorkerNodeCleaner();
@@ -328,6 +327,7 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
         }
         scheduledFutures.clear();
         lastFireTimeLocalCache.clear();
+        lastConfigVersion.set(-1);
         log.info("CronScheduler stopped");
     }
 
