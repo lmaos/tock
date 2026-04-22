@@ -7,6 +7,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public class MemoryManager {
+
+    private static final MemoryManager instance = new MemoryManager();
+
     private final ConcurrentMap<String, MemoryTockMaster> masterMap = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, MemoryTockNode> nodeMap = new ConcurrentHashMap<>();
 
@@ -33,4 +36,10 @@ public class MemoryManager {
     public static MemoryManager create() {
         return new MemoryManager();
     }
+
+
+    public static MemoryManager getSingleton() {
+        return instance;
+    }
+
 }
