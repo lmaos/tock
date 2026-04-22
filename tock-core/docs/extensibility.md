@@ -216,7 +216,6 @@ ScheduleStore
 
 - `schedule(...)`：延迟执行
 - `submit(...)`：立即执行
-- `advanceNanos()`：暴露调度器自己的期望提前量/补偿量
 
 当前内置两种本地执行器：
 
@@ -302,7 +301,11 @@ ScheduleStore
 - 自定义 `ScheduleStore`
 - 自定义 `WorkerQueue`
 - 自定义 `TaskScheduler`
-- 自定义 `TimeProvider`
+- 自定义 `TimeProvider` 或 `TimeSynchronizer` (统一时间源)
+```X
+TimeProvider 被 DefaultTimeSynchronizer依赖，如果 直接实现TimeSynchronizer，则不需要实现 TimeProvider 了。
+TimeProvider 默认值：SystemTimeProvider，直接调用 System.currentTimeMillis()，不做额外处理。
+```
 
 这类扩展成本最低，也最符合框架设计。
 
