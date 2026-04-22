@@ -45,6 +45,12 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
     private ScheduledFuture<?> startWorkerNodeCleanerFuture;
     private ScheduledFuture<?> startConfigRefreshFuture;
     private TockContext context;
+
+
+    public static EventDrivenCronScheduler create() {
+        return new EventDrivenCronScheduler();
+    }
+
     @Override
     public void setTockContext(TockContext context) {
         this.scheduleStore = context.getScheduleStore();
@@ -178,7 +184,7 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
         if (nextFireTime > 0) {
             long delay = nextFireTime - currentTime;
             delay = delay < ADVANCE_THRESHOLD_MS ? Math.max(0, delay - ADVANCE_SHORT_MS) : delay - ADVANCE_LONG_MS; // 提前x秒， 避免时间误差导致错过。
-            log.debug("scheduleConfig({}) to fireTime at {} (delay {} ms / {}ms); registerSyncTime={} [调度器通过配置进行初始化调度任务， 创建事件驱动的定时器执行调度]",
+            log.debug("scheduleConfig({}) to fireTime at {} (delay {} ms / {}ms); syncTime={} [调度器通过配置进行初始化调度任务， 创建事件驱动的定时器执行调度]",
                     scheduleId, nextFireTime, delay, (nextFireTime - currentTime), currentTime);
             ScheduledFuture<?> schedule = context.getSchedulerExecutor().schedule(() -> onFire(config, nextFireTime), delay, TimeUnit.MILLISECONDS);
             scheduledFutures.put(scheduleId, schedule);
@@ -197,7 +203,7 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
         }
         long now = context.currentTimeMillis();
 
-        log.debug("onFire({}) currentTime={}, registerSyncTime={},fireTime={}; (delay:{})", scheduleId, System.currentTimeMillis(), now, nextFireTime, nextFireTime - now);
+        log.debug("onFire({}) currentTime={}, syncTime={},fireTime={}; (delay:{})", scheduleId, System.currentTimeMillis(), now, nextFireTime, nextFireTime - now);
         // 生成并推送任务
         JobExecution execution = JobExecution.builder()
                 .executionId(generateExecutionId(latest))
