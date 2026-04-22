@@ -404,6 +404,9 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
      */
     @Override
     public void resetInitialization() {
+        if (isSystemTimeProvider) {
+            return;
+        }
         offsetInitialized.set(false);
         stableSampleRounds = 0;
         lastSampledOffsetMs = Long.MIN_VALUE;
