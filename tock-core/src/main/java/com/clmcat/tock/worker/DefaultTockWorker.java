@@ -49,6 +49,12 @@ public class DefaultTockWorker implements TockWorker {
     private final Map<String, Map<String, Future<?>>> executeJobFutures = new ConcurrentHashMap<>();
     private final Map<String, Map<String, JobExecution>> pendingExecutions = new ConcurrentHashMap<>();
 
+
+    public static DefaultTockWorker create() {
+        return new DefaultTockWorker();
+    }
+
+
     @Override
     public synchronized void start(TockContext context) {
         if (running) return;
