@@ -30,6 +30,10 @@ public class ScheduledExecutorTaskScheduler implements TaskScheduler {
         });
     }
 
+    public static ScheduledExecutorTaskScheduler create(String threadNamePrefix) {
+        return new ScheduledExecutorTaskScheduler(threadNamePrefix);
+    }
+
     @Override
     public ScheduledFuture<?> schedule(Runnable task, long delay, TimeUnit unit) {
         long delayNanos = unit.toNanos(delay);
