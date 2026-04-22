@@ -78,7 +78,7 @@ public class Tock {
 
     private Config config;
     /**
-     * 时间同步，调度，worker使用的同步时间。 在分布式环境尽可能保证所有时间接近。
+     * 时间接口。
      */
     private TimeSynchronizer timeSynchronizer;
     /**
@@ -199,7 +199,7 @@ public class Tock {
                 log.debug("TimeProvider not configured and register does not implement TimeProvider, using SystemTimeProvider");
             }
         }
-        // 时间同步的默认值： 默认时间同步器 DefaultTimeSynchronizer。
+        // 时间接口默认实现
         if (Objects.isNull(timeSynchronizer)) {
             this.timeSynchronizer = new DefaultTimeSynchronizer(this.timeProvider);
             log.debug("TimeSynchronizer not configured, using DefaultTimeSynchronizer with timeProvider: {}", this.timeProvider.getClass().getSimpleName());
@@ -313,7 +313,7 @@ public class Tock {
 
         if (started) return this;
         started = true;
-        // 启动时间同步
+        // 启动基础组件
         this.timeSynchronizer.start(tockContext);
         this.workerExecutor.start(tockContext);
 

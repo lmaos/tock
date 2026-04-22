@@ -91,28 +91,7 @@ tock:redis:<namespace>
 4. 是否存在可工作的 Master
 5. 队列是否积压在 `queue:<group>:pending`
 
-## 问题 2：Redis 模式下时间提前或连续连发
-
-优先确认使用的是当前修复后的版本，并查看：
-
-- `docs/time-sync-ab-report.md`
-- `../PERFORMANCE.md`
-
-当前版本已经修复：
-
-1. 时间同步器混用墙钟与单调时钟
-2. 调度器提前唤醒后错误重算下一次 cron
-3. Worker 到点前未再次复核同步时间
-
-如果仍有偏差，先判断是：
-
-- Redis 时间基准错误
-- 队列堆积
-- 本机调度抖动
-
-最直接的方法是复跑 `RedisMemoryTimingDiagnosticsTest`。
-
-## 问题 3：节点离线后恢复慢
+## 问题 2：节点离线后恢复慢
 
 主要看两个参数：
 
@@ -157,7 +136,6 @@ tock:redis:<namespace>
 
 补充：
 
-- 这里的“分布式时间源”指 `timeProvider` 不是 `SystemTimeProvider` 的场景，例如 `RedisTockRegister`
 - 自动默认只影响 **未手动覆盖** 的高精度时间轮实例
 
 ## 推荐监控指标
@@ -168,13 +146,11 @@ tock:redis:<namespace>
 - 节点总数 / UNKNOWN 节点数
 - 每个 `workerGroup` 的队列长度
 - 计划执行偏差：`actualFireTime - scheduledTime`
-- 时间同步 offset
 
 ## 变更与回归验证
 
 只要修改了以下任一项，建议至少重新执行一轮 timing 相关测试：
 
-- 时间同步算法
 - Worker 执行器类型
 - Redis 连接参数
 - 选主租约参数
@@ -182,5 +158,5 @@ tock:redis:<namespace>
 建议命令：
 
 ```powershell
-mvn -q "-Dtest=EventDrivenCronSchedulerTimingTest,DefaultTockWorkerTimingGuardTest,RedisMemoryTimingDiagnosticsTest,DefaultTimeSynchronizerRedisPrecisionTest" test
+mvn -q "-Dtest=EventDrivenCronSchedulerTimingTest,DefaultTockWorkerTimingGuardTest,RedisMemoryTimingDiagnosticsTest" test
 ```

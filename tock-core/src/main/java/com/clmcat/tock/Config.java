@@ -75,55 +75,12 @@ public class Config {
 
 
     /**
-     * 时间提供者，用于获取原始时间戳。
-     * <p>
-     * 该接口仅负责从某个具体的时间源（如本地系统时钟、Redis TIME 命令、NTP 服务器等）读取当前毫秒时间戳，
-     * 不涉及任何同步或偏移校正逻辑。默认实现为 {@link SystemTimeProvider}，提供本地系统墙钟时间。
-     * </p>
-     * <p>
-     * 当需要分布式环境下多节点时间一致时，可替换为基于远程时间源的实现（例如从 Redis 获取统一时间），
-     * 此时 {@code timeProvider} 将作为时间同步器 {@link TimeSynchronizer} 的采样依据。
-     * </p>
-     * <br/> <hr/>
-     * 时间提供者，用于获取原始时间戳（如本地系统时间、Redis TIME 命令等）。
-     * <p>
-     * <b>优先级说明：</b>
-     * <ol>
-     *     <li>如果用户显式设置了此字段，则直接使用。</li>
-     *     <li>如果未设置，且 {@link TockRegister} 实现了 {@link TimeProvider} 接口，则自动使用注册中心作为时间提供者。</li>
-     *     <li>否则，默认使用 {@link SystemTimeProvider}。</li>
-     * </ol>
-     * 自动检测逻辑在 {@link Tock} 构造器中执行，用户一般无需手动配置，除非需要自定义时间源（如 NTP）。
-     * </p>
-
-     * @see SystemTimeProvider
-     * @see TimeSynchronizer
+     * 时间提供接口。
      */
     private TimeProvider timeProvider;
 
     /**
-     * 时间同步器，提供单调递增且经过偏移校正的当前时间。
-     * <p>
-     * 该组件内部使用 {@link TimeProvider} 获取原始时间采样，通过算法消除网络延迟影响、校正本地与远程时钟的偏差，
-     * 并保证对外提供的时间戳严格单调递增（不会因为系统时间回拨或偏移量跳变而出现时间倒退）。
-     * </p>
-     * <h3>核心算法</h3>
-     * <ul>
-     *     <li><b>采样中点补偿</b>：每次采样记录请求发出前后的本地时间（使用纳秒计时），估算 RTT 中点，计算远程时间与本地中点的差值作为单次偏移；多次采样时优先采用 RTT 最小的样本，以降低网络抖动与链路非对称带来的误差。</li>
-     *     <li><b>单调性保证</b>：使用 CAS 自旋和上一次返回值缓存，确保任何并发调用返回的时间戳不小于前一次返回值，避免因时钟同步调整或本地时间回拨导致调度混乱。</li>
-     *     <li><b>周期性同步</b>：后台线程定期执行采样，动态更新当前偏移量，使 {@link TimeSynchronizer#currentTimeMillis()} 返回值与远程时间源保持最终一致。</li>
-     * </ul>
-     * <p>
-     * 默认实现为 {@link com.clmcat.tock.time.DefaultTimeSynchronizer}，若使用 {@link SystemTimeProvider} 作为 {@code timeProvider}，
-     * 则会自动退化为基于本地墙钟锚点与单调时钟生成时间，不启动后台同步线程，以节省资源并避免墙钟跳变影响本地等待逻辑。
-     * </p>
-     * <p>
-     * 调度器（如 {@code CronScheduler}）和 Worker 中所有需要获取当前时间的操作都应通过该同步器，
-     * 以确保整个分布式集群使用统一的时间基准，消除节点间时钟偏差对任务精度的影响。
-     * </p>
-     *
-     * @see com.clmcat.tock.time.DefaultTimeSynchronizer
-     * @see TimeProvider
+     * 时间接口。
      */
     private TimeSynchronizer timeSynchronizer;
 }

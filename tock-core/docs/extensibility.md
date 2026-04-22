@@ -1,7 +1,7 @@
 # 可扩展性与接口实现指南
 
 Tock 不只是“一个带 Redis/Memory 两套实现的定时器”，它本质上也是一套**可替换基础设施组件的分布式定时器框架**。  
-核心运行链路里的大部分关键节点都被抽象成接口，业务方或第三方可以按自己的存储、注册中心、消息系统、时间源、序列化规范重新实现。
+核心运行链路里的大部分关键节点都被抽象成接口，业务方或第三方可以按自己的存储、注册中心、消息系统、序列化规范重新实现。
 
 ## 1. 框架式扩展的核心思路
 
@@ -19,7 +19,6 @@ ScheduleStore
 同时，整个链路还依赖：
 
 - `TockRegister`：选主、节点状态、分布式状态存储
-- `TimeProvider` / `TimeSynchronizer`：统一时间基准
 - `Serializer`：对象编解码
 
 也就是说，Tock 的默认实现只是“开箱即用的一组内置组件”；**这些组件并不是唯一实现**。
@@ -38,14 +37,11 @@ ScheduleStore
 | `workerExecutor` | `TaskScheduler` | `ScheduledExecutorTaskScheduler`、`HighPrecisionWheelTaskScheduler` | Worker 本地延迟执行器 | **是** |
 | `jobStore` | `JobStore` | `MemoryJobStore` | 延时任务存储；当前默认事件驱动热路径不强依赖 | **是** |
 | `serializer` | `Serializer` | `JacksonSerializer`、`FastjsonSerializer`、`KryoSerializer`、`JavaSerializer` | 对象序列化/反序列化 | **是** |
-| `timeProvider` | `TimeProvider` | `SystemTimeProvider`、`OffsetTimeProvider`、`RedisTockRegister` | 原始时间采样源 | **是** |
-| `timeSynchronizer` | `TimeSynchronizer` | `DefaultTimeSynchronizer` | 统一同步时间、偏移校正、单调时间输出 | **是** |
 
 补充说明：
 
-1. `Tock` 构造时，如果 `register` 同时实现了 `TimeProvider`，且业务没有显式传 `timeProvider`，框架会自动把 `register` 当作时间源。
-2. 如果你自定义 `Serializer`，`Tock` 仍会在外层包一层 `VersionedSerializer`，保持当前版本兼容策略。
-3. `WorkerQueue` 虽然最小接口只有 `push(...)`，但当前默认 `DefaultTockWorker` 实际要求它至少实现：
+1. 如果你自定义 `Serializer`，`Tock` 仍会在外层包一层 `VersionedSerializer`，保持当前版本兼容策略。
+2. `WorkerQueue` 虽然最小接口只有 `push(...)`，但当前默认 `DefaultTockWorker` 实际要求它至少实现：
    - `SubscribableWorkerQueue`，或
    - `PullableWorkerQueue`
 
@@ -256,46 +252,7 @@ ScheduleStore
 
 就可以替换 `JobRegistry`。
 
-## 3.4 时间抽象层
-
-### `TimeProvider`
-
-职责：
-
-- 提供“可被采样的原始时间”
-
-适合替换成：
-
-- Redis `TIME`
-- NTP
-- GPS / 北斗授时
-- 数据库时间
-- 你自己的统一授时服务
-
-### `TimeSynchronizer`
-
-职责：
-
-- 基于 `TimeProvider` 做同步
-- 输出统一、单调的当前时间
-- 暴露当前偏移量
-
-默认实现是 `DefaultTimeSynchronizer`。  
-如果你希望用：
-
-- 更强的滤波算法
-- 多时间源融合
-- 更严格的平滑校正策略
-
-可以直接替换同步器。
-
-### `TimeSource`
-
-这是**消费侧最小时间抽象**，只暴露 `currentTimeMillis()`。  
-框架内部通过 `TockContext.currentTimeMillis()` 使用它。  
-通常业务更常实现的是 `TimeProvider` 或 `TimeSynchronizer`，而不是单独实现 `TimeSource`。
-
-## 3.5 序列化与公共契约层
+## 3.4 序列化与公共契约层
 
 ### `Serializer`
 
@@ -365,7 +322,7 @@ ScheduleStore
 2. 再实现 `ScheduleStore`
 3. 再实现 `WorkerQueue`
    - 若要复用 `DefaultTockWorker`，最好实现 `SubscribableWorkerQueue` 或 `PullableWorkerQueue`
-4. 按需实现 `TimeProvider` / `TimeSynchronizer`
+4. 按需实现其他基础组件
 5. 通过 `Config.builder()` 装配进去
 
 ## 5. 一个最小的自定义装配示例
@@ -378,8 +335,6 @@ Config config = Config.builder()
         .worker(new DefaultTockWorker())
         .scheduler(new EventDrivenCronScheduler())
         .workerExecutor(new HighPrecisionWheelTaskScheduler("custom-hp"))
-        .timeProvider(new CustomNtpTimeProvider(...))
-        .timeSynchronizer(new CustomTimeSynchronizer(...))
         .serializer(new CustomSerializer())
         .build();
 ```

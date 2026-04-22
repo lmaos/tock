@@ -10,7 +10,7 @@
 | --- | --- |
 | `Tock.configure(Config config)` | 初始化单例；同一 JVM 只能配置一次 |
 | `Tock.get()` | 获取已配置实例 |
-| `Tock.start()` | 启动时间同步、选主、Worker、调度链路 |
+| `Tock.start()` | 启动选主、Worker、调度链路 |
 | `Tock.shutdown()` | 停止调度与 Worker，并按配置关闭线程池 |
 
 ## 任务与调度管理
@@ -29,7 +29,7 @@
 
 | 方法 | 说明 |
 | --- | --- |
-| `currentTimeMillis()` | 返回统一同步时间 |
+| `currentTimeMillis()` | 返回当前时间 |
 | `sync()` | 一直阻塞到 `shutdown()` |
 | `sync(long ms)` | 最多阻塞指定毫秒数 |
 

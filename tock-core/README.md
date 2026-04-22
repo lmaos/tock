@@ -6,15 +6,14 @@ Tock 是一个面向 JVM 的分布式定时器内核：**一个 Master 负责调
 | 模式 | 适用场景 | 关键组件 |
 | --- | --- | --- |
 | Memory | 本地开发、单进程验证 | `MemoryTockRegister` + `MemoryScheduleStore` + `MemoryPullableWorkerQueue` |
-| Redis | 多节点部署、共享时间基准 | `RedisTockRegister` + `RedisScheduleStore` + `RedisSubscribableWorkerQueue` |
+| Redis | 多节点部署 | `RedisTockRegister` + `RedisScheduleStore` + `RedisSubscribableWorkerQueue` |
 
 ## 特性
 
 - **统一入口**：通过 `Tock.configure(config)` 完成组件装配与生命周期管理
 - **Master-Worker 架构**：仅主节点调度，所有节点都可消费任务
-- **同步时间基准**：Redis 模式下可自动使用 Redis `TIME` 作为采样源
 - **两种本地执行器**：默认 `ScheduledExecutorTaskScheduler`，可选 `TaskSchedulers.highPrecision(...)`
-- **高度可扩展**：注册中心、调度器、队列、时间源、同步器、序列化器都可替换
+- **高度可扩展**：注册中心、调度器、队列、执行器、序列化器都可替换
 - **动态调度配置**：`ScheduleStore` 更新后，调度器可通过版本号刷新
 - **分布式执行保护**：Worker 使用 group attribute 锁避免同一计划被并发重复执行
 
@@ -117,8 +116,7 @@ tock.refreshSchedules(); // 快速验证效果，提前手动刷新配置。 默
 
 说明：
 
-- `TaskSchedulers.highPrecision(...)` 在 **分布式时间源** 下会自动把默认 `advanceNanos` 调整到 `1ms`
-- 如果业务已经显式调用 `setAdvanceNanos(...)`，Tock 不会覆盖你的自定义值
+- 如需调整执行器提前量，可显式调用 `setAdvanceNanos(...)`
 
 ## 核心概念
 
@@ -127,7 +125,7 @@ tock.refreshSchedules(); // 快速验证效果，提前手动刷新配置。 默
 | `ScheduleConfig` | 描述“何时执行、执行哪个 `jobId`、交给哪个 `workerGroup`” |
 | `JobExecutor` | 业务回调接口，Worker 触发时执行 `execute(JobContext)` |
 | `WorkerGroup` | 任务路由键；Worker 只会消费自己加入的组 |
-| `Tock.currentTimeMillis()` | 当前统一时间基准；Redis 模式下由同步器对齐远端时间 |
+| `Tock.currentTimeMillis()` | 当前时间 |
 
 ## 为什么说它是框架
 

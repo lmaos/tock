@@ -7,11 +7,6 @@ import java.util.List;
 
 /**
  * 服务注册中心，负责节点注册、选主、分布式状态存储。
- * <p>
- * <b>注意：</b>如果注册中心实现类同时实现了 {@link com.clmcat.tock.time.TimeProvider} 接口（例如基于 Redis 的实现），
- * 且用户未显式配置 {@link com.clmcat.tock.Config#timeProvider}，则 Tock 会自动将其作为时间提供者，
- * 用于获取分布式统一时间戳。这可以简化配置，避免额外的时间源设置。
- * </p>
  */
 public interface TockRegister extends Lifecycle {
 

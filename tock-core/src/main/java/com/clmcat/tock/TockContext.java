@@ -70,14 +70,7 @@ public class TockContext {
     private TimeSource timeSource;
 
     /**
-     * 返回当前同步后的时间戳（毫秒）。
-     * <p>
-     * 该时间通过 {@link TimeSource} 获取，内部可能经过时钟偏移校正和单调性保护，
-     * 适用于调度器和 Worker 中所有需要时间比较的场景。
-     * 使用统一的时间源可以避免分布式环境下各节点因时钟差异导致的调度偏差。
-     * </p>
-     *
-     * @return 单调递增的毫秒级时间戳
+     * 返回当前时间戳（毫秒）。
      */
     public long currentTimeMillis() {
         return timeSource == null ? System.currentTimeMillis() : timeSource.currentTimeMillis();

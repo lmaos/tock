@@ -115,37 +115,6 @@
   - `memory-high-precision`：`22.91ms`
   - 样本中反复出现 `678ms ~ 706ms` 级别的迟到
 
-### 关键定位证据
+### 说明
 
-在样本级 trace 中，异常样本表现为：
-
-1. `push lead` 仍然接近 `995ms`
-2. `first delay` 仍然接近 `995ms`
-3. `final wait overrun` 只有 `0.39ms`
-4. 但业务看到的执行时间却一下子晚了 `927ms`
-
-这说明问题**不是 Master 晚推送，也不是 Worker 本地等待超时**，而是：
-
-- Worker 的本地等待使用 `System.nanoTime()`
-- 但 `SystemTimeProvider` 场景下，`DefaultTimeSynchronizer.currentTimeMillis()` 直接返回了原始 `System.currentTimeMillis()`
-- 在 WSL2 里，墙钟前跳时，这两套时间基准会失配，最终表现成“按单调时钟准时醒来，但按墙钟看已经晚了将近 1 秒”
-
-### 修复
-
-- `DefaultTimeSynchronizer.currentTimeMillis()` 现在统一先走锚定后的单调时间轴
-- `SystemTimeProvider` 场景不再直接裸返回 `System.currentTimeMillis()`
-- 新增单元测试：`DefaultTimeSynchronizerTest.shouldUseMonotonicClockForSystemTimeProvider`
-
-### 修复后结果
-
-- 当时的 WSL2 memory-only 12 轮复测里，**未再出现 `700ms` 级长尾**
-- 但当前用于“谁更准”排名的最终口径，已经切换到更严格的 Windows memory-only Worker A/B：
-  - `default-worker` worker-chain：`2.950ms`
-  - `high-precision` worker-chain：`0.360ms`
-  - `default-worker` scheduler-only：`1.507ms`
-  - `high-precision` scheduler-only：`0.108ms`
-
-### 当前判断
-
-这是一个**真实框架问题，已经修复**。  
-当前对外能力结论应以 [`../PERFORMANCE.md`](../PERFORMANCE.md) 中的最新结果为准。
+该条目的相关分析与结论已移除。

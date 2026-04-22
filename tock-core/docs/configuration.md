@@ -20,8 +20,6 @@
 | `consumerExecutor` | 否 | `cachedThreadPool` | 队列消费与分发线程池 |
 | `manageThreadPools` | 否 | `true` | `shutdown()` 时是否由 Tock 关闭线程池 |
 | `pendingExecutionRecoveryEnabled` | 否 | `false` | 在 `doExecuteJob` 前记录短生命周期 pending 标记，便于故障恢复 |
-| `timeProvider` | 否 | 自动推导 | 优先级：显式配置 > `register`(若实现 `TimeProvider`) > `SystemTimeProvider` |
-| `timeSynchronizer` | 否 | `DefaultTimeSynchronizer(timeProvider)` | 统一时间同步器 |
 
 上表里除了线程池和布尔开关，绝大多数字段本身都是接口，因此可以由业务侧替换为自定义实现。
 
@@ -59,7 +57,6 @@ Config config = Config.builder()
 
 特点：
 
-- `RedisTockRegister` 自动提供统一远端时间源
 - `RedisScheduleStore` 通过全局版本号驱动调度刷新
 - `RedisSubscribableWorkerQueue` 使用 Redis List + `BLPOP`
 
@@ -79,33 +76,8 @@ Config config = Config.builder()
 
 - `TaskSchedulers.highPrecision(...)` 返回 `HighPrecisionWheelTaskScheduler`
 - 该执行器内部使用 1ms tick、分段 park + 最终自旋
-- 本地 `SystemTimeProvider` 场景默认 `advanceNanos=200_000`
-- 分布式时间源场景（例如 `RedisTockRegister` 或显式自定义 `TimeProvider`）若未手动覆盖，则会自动把默认 `advanceNanos` 调整到 `1_000_000`
 - 如果你已经显式调用 `setAdvanceNanos(...)`，Tock 不会覆盖你的自定义值
 - 是否优于默认调度器，仍建议以你自己的目标环境复跑 `PerformanceBenchmarkMain` 或 `RedisHighPrecisionStudyMain`
-
-## 时间同步策略
-
-## 时间源选择优先级
-
-`Tock` 构造时按以下顺序确定原始时间源：
-
-1. 显式传入 `timeProvider`
-2. `register` 本身实现了 `TimeProvider`
-3. 回退到 `SystemTimeProvider`
-
-因此在 Redis 模式下，如果使用 `RedisTockRegister`，通常**不需要再单独配置 `timeProvider`**。
-
-## 默认同步器行为
-
-`DefaultTimeSynchronizer` 当前实现：
-
-- 用一组 `wallClockMs + nanoTime` 锚点建立单调本地时间轴
-- 多次采样时选择 **RTT 最小样本** 作为 offset
-- 通过 CAS 保证 `currentTimeMillis()` 单调不回退
-- 若时间源就是 `SystemTimeProvider`，则不启动后台同步线程
-
-更多误差分析见 [time-sync-ab-report.md](time-sync-ab-report.md)。
 
 ## 调度器选择
 
