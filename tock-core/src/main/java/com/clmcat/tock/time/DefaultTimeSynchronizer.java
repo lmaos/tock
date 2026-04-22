@@ -59,6 +59,12 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     private static final long LARGE_OFFSET_WARN_MS = 1000L;
     /** 偏移量单次调整的最大步长（毫秒），用于平滑跳变 */
     private static final long MAX_OFFSET_ADJUST_STEP_MS = 5L;
+    /** 本轮样本允许的最大跨样本变化（毫秒） */
+    private static final long MAX_STABLE_SAMPLE_DRIFT_MS = 1L;
+    /** 本轮样本允许的最大离散度（毫秒） */
+    private static final long MAX_SAMPLE_SPREAD_MS = 2L;
+    /** 连续稳定多少轮之后，才允许向目标偏移继续推进 */
+    private static final int REQUIRED_STABLE_SAMPLE_ROUNDS = 2;
 
     /** 是否使用系统时间提供者（本地时间），若为 true 则不进行远程同步 */
     private final boolean isSystemTimeProvider;
@@ -84,6 +90,12 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     private final AtomicBoolean offsetInitialized = new AtomicBoolean(false);
     /** 同步器是否正在运行 */
     private final AtomicBoolean running = new AtomicBoolean(false);
+    /** 上一次参与稳定性判断的样本偏移 */
+    private long lastSampledOffsetMs = Long.MIN_VALUE;
+    /** 上一次同步发生时的单调纳秒时间 */
+    private long lastSyncNanoTime = Long.MIN_VALUE;
+    /** 连续稳定样本轮次 */
+    private int stableSampleRounds = 0;
 
     /** 执行周期性同步的调度线程池 */
     private ScheduledExecutorService scheduler;
@@ -149,7 +161,7 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
      * 采样过程：
      * <ol>
      *   <li>进行 sampleCount 次采样，每次记录 RTT 中点对应的本地单调毫秒时间，与远程时间比较得到样本偏移。</li>
-     *   <li>选择 RTT 最小的样本作为最佳偏移，以提高抗网络抖动能力。</li>
+     *   <li>优先使用最小 RTT 样本；如果本轮样本离散度明显偏大，则退回到均值作为代表偏移，避免单点抖动。</li>
      *   <li>调用 stabilizeOffset 对偏移量进行平滑处理，避免突变。</li>
      *   <li>更新 offsetMs，并记录显著变化。</li>
      * </ol>
@@ -167,6 +179,9 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         int successCount = 0;
         long bestOffset = 0L;
         long bestRttNs = Long.MAX_VALUE;
+        long minSampleOffset = Long.MAX_VALUE;
+        long maxSampleOffset = Long.MIN_VALUE;
+        long syncStartNs = nanoTimeSupplier.getAsLong();
 
         for (int i = 0; i < sampleCount; i++) {
             try {
@@ -178,6 +193,12 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
                 long midpointLocalMs = monotonicTimeMillisAt(midpointLocalNs); // 当前毫秒 monotonicBaseWallClockMs + TimeUnit.NANOSECONDS.toMillis(nanoTime - monotonicBaseNanoTime);
                 long sampleOffset = remoteTimeMs - midpointLocalMs; // 远程时间 - 当前毫秒 = 偏移
                 totalOffset += sampleOffset;
+                if (sampleOffset < minSampleOffset) {
+                    minSampleOffset = sampleOffset;
+                }
+                if (sampleOffset > maxSampleOffset) {
+                    maxSampleOffset = sampleOffset;
+                }
                 if (rttNs < bestRttNs) { // 选择最小的 RTT 样本作为最佳偏移
                     bestRttNs = rttNs;
                     bestOffset = sampleOffset; // 最佳偏移值
@@ -195,8 +216,17 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
 
         long averageOffset = Math.round(totalOffset / (double) successCount); // 平均偏移
         long oldOffset = offsetMs.get(); // 历史偏移
-        long newOffset = stabilizeOffset(oldOffset, bestOffset, bestRttNs); // 新的偏移
+        long sampleSpreadMs = maxSampleOffset - minSampleOffset;
+        long elapsedSinceLastSyncMs = lastSyncNanoTime == Long.MIN_VALUE
+                ? syncIntervalMs
+                : Math.max(1L, TimeUnit.NANOSECONDS.toMillis(syncStartNs - lastSyncNanoTime));
+        long representativeOffset = sampleSpreadMs <= MAX_SAMPLE_SPREAD_MS ? bestOffset : averageOffset;
+        boolean sampleStable = isSampleStable(representativeOffset, sampleSpreadMs, elapsedSinceLastSyncMs);
+        updateStableSampleRounds(representativeOffset, sampleStable);
+        long newOffset = stabilizeOffset(oldOffset, representativeOffset, bestRttNs, sampleStable, sampleSpreadMs, elapsedSinceLastSyncMs); // 新的偏移
         offsetMs.set(newOffset); // 设置
+        lastSampledOffsetMs = representativeOffset;
+        lastSyncNanoTime = syncStartNs;
         if (Math.abs(newOffset - oldOffset) >= LARGE_OFFSET_WARN_MS) {
             log.warn("Large time offset change detected: old={}ms, new={}ms, avg={}ms, bestRtt={}ns",
                     oldOffset, newOffset, averageOffset, bestRttNs);
@@ -284,42 +314,78 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     /**
      * 偏移量稳定化处理。
      * <p>
-     * 主要目的：防止因网络瞬时抖动或远程时间跳变导致的偏移量剧烈变化，从而避免对外时间出现大幅波动。
+     * 主要目的：防止因网络瞬时抖动、Redis TIME 微小跳变或本地同步周期异常导致的偏移量剧烈变化，
+     * 从而避免对外时间出现持续性的 5ms 级别锯齿。
      * </p>
      * <p>
      * 策略：
      * <ul>
      *   <li>首次采样直接采用，不做限幅。</li>
-     *   <li>后续采样，若变化幅度在 MAX_OFFSET_ADJUST_STEP_MS 内，则直接应用新偏移。</li>
-     *   <li>否则，进行限幅：每次最多向目标方向调整 MAX_OFFSET_ADJUST_STEP_MS。</li>
-     *   <li><b>关于负向调整（sampledOffset < currentOffset）的处理：</b>
-     *       理想情况下，为保证绝对单调性，应禁止负向调整（即保持当前偏移量不变）。
-     *       但当前分布式环境（如 Redis 时钟漂移）中，若远程时间确实落后于本地，
-     *       长期禁止负向调整会导致同步时间持续快于远程时间，可能累积较大偏差。
-     *       因此暂时保留双向限幅，通过步长控制来缓冲负向跳变的影响。
-     *       代码中保留了负向禁止的注释分支，可根据实际运维策略启用。
-     *   </li>
+     *   <li>后续采样必须先通过稳定性检查：本轮样本离散度、与上轮样本的变化率、以及本地同步间隔都要处于可接受范围。</li>
+     *   <li>稳定样本连续出现后，才允许以 MAX_OFFSET_ADJUST_STEP_MS 为上限向目标偏移推进。</li>
+     *   <li>如果 Redis 时间本身持续抖动，则保持当前偏移不变，等待下一轮更稳定的样本。</li>
      * </ul>
      * </p>
      *
      * @param currentOffset 当前偏移量
      * @param sampledOffset 本次采样计算出的原始偏移量（最小 RTT 样本）
      * @param bestRttNs     最小 RTT 值（纳秒），仅用于日志
+     * @param sampleStable  本轮样本是否稳定
+     * @param sampleSpreadMs 本轮样本离散度（最大值 - 最小值）
+     * @param elapsedSinceLastSyncMs 距离上次同步的本地单调时间间隔
      * @return 经过平滑处理后的新偏移量
      */
-    private long stabilizeOffset(long currentOffset, long sampledOffset, long bestRttNs) {
+    private long stabilizeOffset(long currentOffset, long sampledOffset, long bestRttNs,
+                                 boolean sampleStable, long sampleSpreadMs, long elapsedSinceLastSyncMs) {
         if (offsetInitialized.compareAndSet(false, true)) {
             return sampledOffset;
         }
+        if (!sampleStable) {
+            log.info("Skip unstable time offset sample: current={}ms, sampled={}ms, spread={}ms, elapsed={}ms",
+                    currentOffset, sampledOffset, sampleSpreadMs, elapsedSinceLastSyncMs);
+            return currentOffset;
+        }
         long delta = sampledOffset - currentOffset;
-        log.info("Old offset: {}, New Offset: {}", currentOffset, sampledOffset);
+        log.info("Old offset: {}, New Offset: {}, spread={}ms, elapsed={}ms",
+                currentOffset, sampledOffset, sampleSpreadMs, elapsedSinceLastSyncMs);
         if (Math.abs(delta) <= MAX_OFFSET_ADJUST_STEP_MS) {
             return sampledOffset;
+        }
+        if (stableSampleRounds < REQUIRED_STABLE_SAMPLE_ROUNDS) {
+            log.debug("Deferring time offset slew until the sample stays stable: current={}ms, sampled={}ms, stableRounds={}, bestRtt={}ns",
+                    currentOffset, sampledOffset, stableSampleRounds, bestRttNs);
+            return currentOffset;
         }
         long boundedOffset = currentOffset + Math.max(-MAX_OFFSET_ADJUST_STEP_MS, Math.min(MAX_OFFSET_ADJUST_STEP_MS, delta));
         log.warn("Clamped time offset adjustment: current={}ms, sampled={}ms, applied={}ms, bestRtt={}ns",
                 currentOffset, sampledOffset, boundedOffset, bestRttNs);
         return boundedOffset;
+    }
+
+    private boolean isSampleStable(long sampledOffset, long sampleSpreadMs, long elapsedSinceLastSyncMs) {
+        if (lastSampledOffsetMs == Long.MIN_VALUE || lastSyncNanoTime == Long.MIN_VALUE) {
+            return true;
+        }
+        long sampleDelta = Math.abs(sampledOffset - lastSampledOffsetMs);
+        long maxAllowedDelta = Math.max(1L, (elapsedSinceLastSyncMs * MAX_STABLE_SAMPLE_DRIFT_MS) / 1000L);
+        return sampleDelta <= maxAllowedDelta;
+    }
+
+    private void updateStableSampleRounds(long sampledOffset, boolean sampleStable) {
+        if (!sampleStable) {
+            stableSampleRounds = 0;
+            return;
+        }
+        if (lastSampledOffsetMs == Long.MIN_VALUE) {
+            stableSampleRounds = 1;
+            return;
+        }
+        long sampleDelta = Math.abs(sampledOffset - lastSampledOffsetMs);
+        if (sampleDelta <= MAX_STABLE_SAMPLE_DRIFT_MS) {
+            stableSampleRounds++;
+        } else {
+            stableSampleRounds = 1;
+        }
     }
 
     private static final class MonotonicAnchor {
@@ -330,5 +396,24 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
             this.wallClockMs = wallClockMs;
             this.nanoTime = nanoTime;
         }
+    }
+
+    /**
+     * 重置偏移量初始化状态，强制下一次同步采用采样值作为新偏移量。
+     * 适用于 Master 切换后需要快速重新对齐时间的场景。
+     */
+    @Override
+    public void resetInitialization() {
+        offsetInitialized.set(false);
+        stableSampleRounds = 0;
+        lastSampledOffsetMs = Long.MIN_VALUE;
+        log.info("Time synchronizer initialization reset. Next sync will force adopt sampled offset.");
+    }
+
+    @Override
+    public synchronized void forceReinitialize() {
+        resetInitialization();
+        syncNow(); // 立即采样并应用，建立新基准
+        log.info("Time synchronizer forcibly reinitialized. New offset: {}ms", offsetMs.get());
     }
 }

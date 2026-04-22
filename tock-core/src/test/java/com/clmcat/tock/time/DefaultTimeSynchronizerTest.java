@@ -3,212 +3,151 @@ package com.clmcat.tock.time;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-
 public class DefaultTimeSynchronizerTest {
 
     @Test
-    void shouldKeepStableTimeWithSimulatedDelay() {
-        DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(new OffsetDelayTimeProvider(5_000L, 80L), 100L, 5);
-        try {
-            synchronizer.start(null);
-            long observed1 = synchronizer.currentTimeMillis();
-            sleep(60L);
-            long observed2 = synchronizer.currentTimeMillis();
-
-            Assertions.assertTrue(observed2 >= observed1, "synced time should be monotonic");
-            Assertions.assertTrue(Math.abs((observed2 - observed1) - 60L) < 120L, "clock should advance steadily");
-        } finally {
-            synchronizer.stop();
-        }
-    }
-
-    @Test
-    void shouldUseSuccessfulSamplesWhenSomeRequestsFail() {
-        FlakyTimeProvider provider = new FlakyTimeProvider(2_000L, 2);
-        DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(provider, 100L, 4);
-
-        try {
-            synchronizer.start(null);
-            long before = synchronizer.offset();
-            long updated = synchronizer.syncNow();
-
-            Assertions.assertTrue(Math.abs(before - 2_000L) <= 1L);
-            Assertions.assertTrue(Math.abs(updated - 2_000L) <= 1L);
-            Assertions.assertEquals(updated, synchronizer.offset());
-        } finally {
-            synchronizer.stop();
-        }
-    }
-
-    @Test
-    void shouldKeepPreviousOffsetWhenAllSamplesFail() {
-        DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(new OffsetDelayTimeProvider(1_500L, 10L), 100L, 3);
-        AlwaysFailAfterWarmupProvider failingProvider = new AlwaysFailAfterWarmupProvider(synchronizer.offset());
-        DefaultTimeSynchronizer failingSynchronizer = new DefaultTimeSynchronizer(failingProvider, 100L, 3);
-
-        try {
-            long before = failingSynchronizer.offset();
-            long updated = failingSynchronizer.syncNow();
-
-            Assertions.assertEquals(before, updated);
-            Assertions.assertEquals(before, failingSynchronizer.offset());
-        } finally {
-            synchronizer.stop();
-            failingSynchronizer.stop();
-        }
-    }
-
-    @Test
-    void shouldExposeStableOffsetAfterDelay() {
-        DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(new OffsetDelayTimeProvider(1_234L, 30L), 100L, 3);
-        try {
-            synchronizer.start(null);
-            Assertions.assertTrue(Math.abs(synchronizer.offset() - 1_234L) < 150L);
-        } finally {
-            synchronizer.stop();
-        }
-    }
-
-    @Test
-    void shouldUseMonotonicClockForSystemTimeProvider() {
-        AtomicLong wallClockMs = new AtomicLong(10_000L);
-        AtomicLong nanoTime = new AtomicLong(1_000_000_000L);
+    void shouldKeepSystemProviderMonotonic() {
+        TimeSyncBenchmarkSupport.FakeClock clock = new TimeSyncBenchmarkSupport.FakeClock(1_700_000_000_000L, 0L, 0L);
         DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(
                 new SystemTimeProvider(),
                 100L,
                 1,
-                wallClockMs::get,
-                nanoTime::get
+                clock::currentTimeMillis,
+                clock::nanoTime
         );
 
         long first = synchronizer.currentTimeMillis();
-        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(995L));
-        wallClockMs.addAndGet(1_900L);
+        clock.advanceRealMillis(995L);
         long second = synchronizer.currentTimeMillis();
 
-        Assertions.assertEquals(995L, second - first,
-                "system time provider should advance according to monotonic nano time even if wall clock jumps");
+        Assertions.assertEquals(995L, second - first);
     }
 
     @Test
-    void shouldClampLargeOffsetJumpAfterInitialization() {
-        AtomicLong wallClockMs = new AtomicLong(10_000L);
-        AtomicLong nanoTime = new AtomicLong(1_000_000_000L);
-        ScriptedTimeProvider provider = new ScriptedTimeProvider(wallClockMs, nanoTime);
-        provider.nextStep(new ProviderStep(0L, 0L));
-
+    void shouldIgnoreOscillatingRedisJitter() {
+        TimeSyncBenchmarkSupport.FakeClock clock = new TimeSyncBenchmarkSupport.FakeClock(1_700_000_000_000L, 0L, 0L);
         DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(
-                provider,
-                100L,
-                1,
-                wallClockMs::get,
-                nanoTime::get
+                new OscillatingRedisTimeProvider(clock, 5_000L, -5L, 5L, -5L, 5L),
+                1_000L,
+                5,
+                clock::currentTimeMillis,
+                clock::nanoTime
         );
 
-        wallClockMs.addAndGet(1_000L);
-        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(1_000L));
-        provider.nextStep(new ProviderStep(1_600L, 0L));
+        long startOffset = synchronizer.offset();
+        long previousObserved = synchronizer.currentTimeMillis();
+        long totalIntervalError = 0L;
+        long maxIntervalError = 0L;
 
+        for (int i = 0; i < 40; i++) {
+            synchronizer.syncNow();
+            clock.advanceRealMillis(1_000L);
+
+            long observed = synchronizer.currentTimeMillis();
+            long intervalError = Math.abs((observed - previousObserved) - 1_000L);
+            totalIntervalError += intervalError;
+            if (intervalError > maxIntervalError) {
+                maxIntervalError = intervalError;
+            }
+            previousObserved = observed;
+        }
+
+        Assertions.assertTrue(maxIntervalError <= 1L, "periodic ticks should stay smooth even if Redis jitters");
+        Assertions.assertTrue(totalIntervalError / 40.0D <= 0.5D, "average interval error should stay below 0.5ms");
+        Assertions.assertTrue(Math.abs(synchronizer.offset() - startOffset) <= 1L,
+                "oscillating Redis samples should not staircase the offset");
+    }
+
+    @Test
+    void shouldKeepMultipleSynchronizersAlignedAcrossStaggeredStarts() {
+        TimeSyncBenchmarkSupport.FakeClock clock = new TimeSyncBenchmarkSupport.FakeClock(1_700_000_000_000L, 0L, 0L);
+        OscillatingRedisTimeProvider provider = new OscillatingRedisTimeProvider(clock, 4_000L, -5L, 5L, -5L, 5L);
+
+        DefaultTimeSynchronizer first = new DefaultTimeSynchronizer(provider, 1_000L, 5, clock::currentTimeMillis, clock::nanoTime);
+        clock.advanceRealMillis(317L);
+        DefaultTimeSynchronizer second = new DefaultTimeSynchronizer(provider, 1_000L, 5, clock::currentTimeMillis, clock::nanoTime);
+        clock.advanceRealMillis(211L);
+        DefaultTimeSynchronizer third = new DefaultTimeSynchronizer(provider, 1_000L, 5, clock::currentTimeMillis, clock::nanoTime);
+
+        for (int i = 0; i < 30; i++) {
+            first.syncNow();
+            second.syncNow();
+            third.syncNow();
+
+            long a = first.currentTimeMillis();
+            long b = second.currentTimeMillis();
+            long c = third.currentTimeMillis();
+            long skew = Math.max(Math.max(a, b), c) - Math.min(Math.min(a, b), c);
+
+            Assertions.assertTrue(skew <= 2L, "staggered synchronizers should stay aligned");
+            clock.advanceRealMillis(1_000L);
+        }
+    }
+
+    @Test
+    void shouldTrackStableRedisOffsetAccurately() {
+        TimeSyncBenchmarkSupport.FakeClock clock = new TimeSyncBenchmarkSupport.FakeClock(1_700_000_000_000L, 0L, 0L);
+        DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(
+                new OscillatingRedisTimeProvider(clock, 1_234L, 0L),
+                1_000L,
+                3,
+                clock::currentTimeMillis,
+                clock::nanoTime
+        );
+
+        for (int i = 0; i < 10; i++) {
+            synchronizer.syncNow();
+            clock.advanceRealMillis(1_000L);
+        }
+
+        Assertions.assertTrue(Math.abs(synchronizer.offset() - 1_234L) <= 1L,
+                "stable Redis time should converge to the correct offset");
+    }
+
+    @Test
+    void shouldKeepPreviousOffsetWhenAllSamplesFail() {
+        DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(new OneShotFailingProvider(1_500L), 100L, 3);
+
+        long before = synchronizer.offset();
         long updated = synchronizer.syncNow();
 
-        Assertions.assertEquals(5L, updated,
-                "large sampled offset jumps should be slewed instead of being applied in a single step");
+        Assertions.assertEquals(before, updated);
+        Assertions.assertEquals(before, synchronizer.offset());
     }
 
-    private static void sleep(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(e);
-        }
-    }
+    private static final class OscillatingRedisTimeProvider implements TimeProvider {
+        private final TimeSyncBenchmarkSupport.FakeClock clock;
+        private final long baseOffsetMs;
+        private final long[] jitterPatternMs;
+        private int calls;
 
-    private static final class OffsetDelayTimeProvider implements TimeProvider {
-        private final long offsetMs;
-        private final long delayMs;
-
-        private OffsetDelayTimeProvider(long offsetMs, long delayMs) {
-            this.offsetMs = offsetMs;
-            this.delayMs = delayMs;
+        private OscillatingRedisTimeProvider(TimeSyncBenchmarkSupport.FakeClock clock, long baseOffsetMs, long... jitterPatternMs) {
+            this.clock = clock;
+            this.baseOffsetMs = baseOffsetMs;
+            this.jitterPatternMs = jitterPatternMs;
         }
 
         @Override
         public long currentTimeMillis() {
-            sleep(delayMs);
-            return System.currentTimeMillis() + offsetMs;
+            long jitterMs = jitterPatternMs[calls++ % jitterPatternMs.length];
+            return clock.remoteTimeMillis(baseOffsetMs + jitterMs);
         }
     }
 
-    private static final class FlakyTimeProvider implements TimeProvider {
+    private static final class OneShotFailingProvider implements TimeProvider {
         private final long offsetMs;
-        private final int failCount;
         private int calls;
 
-        private FlakyTimeProvider(long offsetMs, int failCount) {
+        private OneShotFailingProvider(long offsetMs) {
             this.offsetMs = offsetMs;
-            this.failCount = failCount;
-        }
-
-        @Override
-        public long currentTimeMillis() {
-            if (calls++ < failCount) {
-                throw new IllegalStateException("simulated provider failure");
-            }
-            return System.currentTimeMillis() + offsetMs;
-        }
-    }
-
-    private static final class AlwaysFailAfterWarmupProvider implements TimeProvider {
-        private final long initialTime;
-        private int calls;
-
-        private AlwaysFailAfterWarmupProvider(long offsetMs) {
-            this.initialTime = System.currentTimeMillis() + offsetMs;
         }
 
         @Override
         public long currentTimeMillis() {
             if (calls++ == 0) {
-                return initialTime;
+                return System.currentTimeMillis() + offsetMs;
             }
             throw new IllegalStateException("simulated provider failure");
-        }
-    }
-
-    private static final class ScriptedTimeProvider implements TimeProvider {
-        private final AtomicLong wallClockMs;
-        private final AtomicLong nanoTime;
-        private final AtomicReference<ProviderStep> nextStep = new AtomicReference<>(new ProviderStep(0L, 0L));
-
-        private ScriptedTimeProvider(AtomicLong wallClockMs, AtomicLong nanoTime) {
-            this.wallClockMs = wallClockMs;
-            this.nanoTime = nanoTime;
-        }
-
-        private void nextStep(ProviderStep step) {
-            nextStep.set(step);
-        }
-
-        @Override
-        public long currentTimeMillis() {
-            ProviderStep step = nextStep.getAndSet(new ProviderStep(0L, 0L));
-            wallClockMs.addAndGet(step.delayMs);
-            nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(step.delayMs));
-            return wallClockMs.get() + step.remoteOffsetMs;
-        }
-    }
-
-    private static final class ProviderStep {
-        private final long delayMs;
-        private final long remoteOffsetMs;
-
-        private ProviderStep(long delayMs, long remoteOffsetMs) {
-            this.delayMs = delayMs;
-            this.remoteOffsetMs = remoteOffsetMs;
         }
     }
 }

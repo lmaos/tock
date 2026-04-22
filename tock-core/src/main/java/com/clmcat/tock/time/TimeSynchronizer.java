@@ -27,4 +27,8 @@ public interface TimeSynchronizer extends TimeSource, Lifecycle {
      * 停止组件。
      */
     void stop();
+
+    void resetInitialization();
+
+    void forceReinitialize();
 }
