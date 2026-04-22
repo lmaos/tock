@@ -239,7 +239,7 @@ public final class RedisHighPrecisionStudyMain {
         private static TaskScheduler createHighPrecision(String name, long advanceNanos, boolean disableSpin) {
             TunableHighPrecisionWheelTaskScheduler scheduler = new TunableHighPrecisionWheelTaskScheduler(
                     Math.max(2, Runtime.getRuntime().availableProcessors() * 2), name, disableSpin);
-            scheduler.setAdvanceNanos(advanceNanos);
+//            scheduler.setAdvanceNanos(advanceNanos); 作废了。 这个值没用了。
             return scheduler;
         }
     }

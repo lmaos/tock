@@ -17,35 +17,59 @@ Tock 是一个面向 JVM 的分布式定时器内核：**一个 Master 负责调
 - **动态调度配置**：`ScheduleStore` 更新后，调度器可通过版本号刷新
 - **分布式执行保护**：Worker 使用 group attribute 锁避免同一计划被并发重复执行
 
+## 当前状态： 
+
+已完成核心功能，并进行了测试评估。
+
+后面持续优化功能细节， 并提供测试验证工具/代码。
+
+version: 1.0.0-SNAPSHOT
+
 ## Maven 依赖
 
 ```xml
 <dependency>
     <groupId>com.clmcat.tock</groupId>
     <artifactId>tock-core</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0-SNAPSHOT</version>
 </dependency>
 
 <!-- 序列化依赖 ： 
-    默认序列工具根据用户依赖的第三方库自动选择，优先级为：Jackson > Fastjson > Kryo > JavaSerializer。
-    需要自行导入
+    默认序列工具根据用户依赖的第三方库 “自动选择”：
+                优先级为：Jackson > Fastjson > Kryo > JavaSerializer。
+    
+    注意： 需要自行导入. 如果不导入，序列化将使用Java默认的。
+    <dependency>
+        <groupId>com.alibaba</groupId>
+        <artifactId>fastjson</artifactId>
+        <version>${fastjson.varsion}</version>
+    </dependency>
  -->
 
 <!-- Jedis 依赖， 当前默认版本的Redis 是 Jedis客户端实现。需要导入Jedis -->
+<!-- <dependency>
+    <groupId>redis.clients</groupId>
+    <artifactId>jedis</artifactId>
+    <version>${jedis.version}</version>
+</dependency> -->
+
 ```
 
 ## 5 分钟上手：内存模式
 
+### 使用 MemoryConfigBuilder 构造
 ```java
-import com.clmcat.tock.Config;
-import com.clmcat.tock.Tock;
-import com.clmcat.tock.money.MemoryManager;
-import com.clmcat.tock.registry.memory.MemoryTockRegister;
-import com.clmcat.tock.schedule.ScheduleConfig;
-import com.clmcat.tock.schedule.memory.MemoryScheduleStore;
-import com.clmcat.tock.worker.memory.MemoryPullableWorkerQueue;
-import com.clmcat.tock.worker.scheduler.TaskSchedulers;
+Config config = MemoryConfigBuilder.builder("test-app")
+        // 可选，默认 false (TaskSchedulers.defaultWorker("xx-worker"))。
+        //          true (TaskSchedulers.highPrecision("xx-worker"))。
+        .withHighPrecisionWorker(false) 
+        .build();
+Tock tock = Tock.configure(config).start();
+```
 
+### 使用 Config.builder() 构建配置，
+
+```java
 MemoryTockRegister register = new MemoryTockRegister("quickstart", MemoryManager.create());
 // 构建配置，指定组件实现。Tock 内置了 Memory / Redis 两套默认实现，也提供了接口供用户扩展 实现其他的存储模式。
 Config config = Config.builder()
@@ -76,18 +100,13 @@ tock.sync(10_000L);
 tock.shutdown();
 ```
 
+
 ## Redis 模式最小配置
 
-```java
-import com.clmcat.tock.Config;
-import com.clmcat.tock.Tock;
-import com.clmcat.tock.registry.redis.RedisTockRegister;
-import com.clmcat.tock.schedule.ScheduleConfig;
-import com.clmcat.tock.schedule.redis.RedisScheduleStore;
-import com.clmcat.tock.worker.redis.RedisSubscribableWorkerQueue;
-import com.clmcat.tock.worker.scheduler.TaskSchedulers;
-import redis.clients.jedis.JedisPool;
 
+### 使用 Config.builder() 构建配置
+
+```java
 JedisPool jedisPool = new JedisPool("127.0.0.1", 6379);
 String namespace = "demo";
 

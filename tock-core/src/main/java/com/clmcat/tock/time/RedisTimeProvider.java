@@ -7,6 +7,11 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+/**
+ * 基于 Redis 的时间提供者，使用 Redis 的 TIME 命令获取当前时间。
+ *
+ * <p>仅作参考实现：不建议使用Redis作为时间源，请自行提供更可靠的时间来源。</p>
+ */
 public class RedisTimeProvider implements TimeProvider {
 
     private Supplier<Jedis> jedisSupplier;

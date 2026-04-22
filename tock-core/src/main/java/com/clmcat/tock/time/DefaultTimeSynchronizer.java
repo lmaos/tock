@@ -244,11 +244,12 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
      */
     @Override
     public synchronized void start(TockContext context) {
-        if (!running.compareAndSet(false, true)) {
+        if (isSystemTimeProvider) {
+            running.set(false);
             return;
         }
 
-        if (isSystemTimeProvider) {
+        if (!running.compareAndSet(false, true)) {
             return;
         }
 
@@ -410,6 +411,7 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         offsetInitialized.set(false);
         stableSampleRounds = 0;
         lastSampledOffsetMs = Long.MIN_VALUE;
+        lastSyncNanoTime = Long.MIN_VALUE;
         log.info("Time synchronizer initialization reset. Next sync will force adopt sampled offset.");
     }
 
