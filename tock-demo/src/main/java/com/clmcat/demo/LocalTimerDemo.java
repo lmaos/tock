@@ -2,6 +2,7 @@ package com.clmcat.demo;
 
 import com.clmcat.tock.Config;
 import com.clmcat.tock.Tock;
+import com.clmcat.tock.builders.MemoryConfigBuilder;
 import com.clmcat.tock.money.MemoryManager;
 import com.clmcat.tock.registry.memory.MemoryTockRegister;
 import com.clmcat.tock.schedule.ScheduleConfig;
@@ -14,11 +15,8 @@ public class LocalTimerDemo {
     static void main() {
 
         MemoryTockRegister register = new MemoryTockRegister("test-x", MemoryManager.create());
-        Config config = Config.builder()
-                .workerExecutor(TaskSchedulers.highPrecision("test-worker"))
-                .register(register)
-                .workerQueue(MemorySubscribableWorkerQueue.create())
-                .scheduleStore(MemoryScheduleStore.create())
+        Config config = MemoryConfigBuilder.builder("test-x")
+                .withHighPrecisionWorker(true)
                 .build();
 
 
