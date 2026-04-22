@@ -46,4 +46,22 @@ public final class SpinWaitSupport {
     static boolean isOnSpinWaitAvailable() {
         return ON_SPIN_WAIT_AVAILABLE;
     }
+
+
+    protected static void onSpinWait(long deadlineNanos) {
+        // 默认实现：每 100 次自旋检查一次时间，其余迭代仅忙等
+        int spins = 0;
+        if (isOnSpinWaitAvailable()) {
+            // Java 9+：使用 Thread.onSpinWait() 优化
+            while (((spins++ & 0x7F) != 0 || System.nanoTime() - deadlineNanos < 0)) {
+                onSpinWait();
+            }
+        } else {
+            // Java 8：纯空循环，定期检查时间
+            // 每 128 次自旋检查一次时间（掩码 0x7F）
+            while (((spins++ & 0x7F) != 0 || System.nanoTime() - deadlineNanos < 0)) {
+                // 空循环体
+            }
+        }
+    }
 }
