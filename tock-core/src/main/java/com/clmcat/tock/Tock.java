@@ -9,6 +9,7 @@ import com.clmcat.tock.registry.TockRegister;
 import com.clmcat.tock.schedule.ScheduleConfig;
 import com.clmcat.tock.schedule.ScheduleStore;
 import com.clmcat.tock.utils.LifecycleSupport;
+import com.clmcat.tock.utils.ReferenceSupport;
 import com.clmcat.tock.worker.scheduler.ScheduledExecutorTaskScheduler;
 import com.clmcat.tock.scheduler.EventDrivenCronScheduler;
 import com.clmcat.tock.worker.scheduler.TaskScheduler;
@@ -43,13 +44,13 @@ public class Tock {
     private static volatile Tock instance;
 
     /**
-     * 初始化并配置 Tock 实例。
+     * 初始化并配置 Tock 实例。 (全局唯一实例)
      * @param config 配置对象（包含 Redis 地址、选主实现、存储实现等）
      * @return 配置好的 Tock 单例（或新实例，这里采用单例模式）
      */
     public static synchronized Tock configure(Config config) {
         if (instance != null) throw new IllegalStateException("Tock already configured");
-        instance = new Tock(config);
+        instance = create(config);
         return instance;
     }
 
@@ -58,6 +59,15 @@ public class Tock {
             instance.shutdown();
             instance = null;
         }
+    }
+
+    /**
+     * 创建一个新的独立实例。
+     * @param config 实例配置
+     * @return 返回 Tock
+     */
+    public static Tock create(Config config) {
+        return new Tock(config);
     }
 
     /**
@@ -154,6 +164,9 @@ public class Tock {
      * @param config 初始化配置文件
      */
     Tock(Config config) {
+        if (!ReferenceSupport.commonReference(config)) {
+            throw new IllegalStateException("[ Config 已经被另一个Tock依赖，请重新创建 Config ] Config instance is already used by another Tock instance, please create a new Config instance.");
+        }
         this.config = config;
         this.jobRegistry = new DefaultJobRegistry();
 
@@ -249,9 +262,8 @@ public class Tock {
                 .timeSource(timeSynchronizer)
                 .build();
 
-
+        // 组件集合。
         this.components = Arrays.asList(
-                config,
                 serializer,
                 register,
                 timeProvider,
@@ -264,6 +276,14 @@ public class Tock {
                 scheduleStore,
                 worker,
                 scheduler);
+
+        for (Object component : components) {
+            if (component != null) {
+                if (!ReferenceSupport.commonReference(component)) {
+                    throw new IllegalStateException("[组件 " + component.getClass().getSimpleName() + " 已经被另一个Tock依赖，请重新创建组件实例] Component " + component.getClass().getSimpleName() + " is already used by another Tock instance, please create a new instance.");
+                }
+            }
+        }
 
         // 给基础组件设置 TockContext, 需要实现: TockContextAware
         components.forEach(component -> {
@@ -336,12 +356,19 @@ public class Tock {
      * 优雅关闭所有组件。
      */
     public synchronized  void shutdown() {
+        // config 被多个 Tock 依赖。
+
+
         if (started.compareAndSet(true, false)) {
-            if (started.compareAndSet(true, false)) {
-                for (int i = this.lifecyclesComponents.size() - 1; i >=0 ; i--) {
-                    lifecycleStop(lifecyclesComponents.get(i), tockContext);
-                }
+            this.components.forEach(component -> {
+                ReferenceSupport.commonRemoveReference(component);
+            });
+            ReferenceSupport.configRemoveReference(config);
+
+            for (int i = this.lifecyclesComponents.size() - 1; i >=0 ; i--) {
+                lifecycleStop(lifecyclesComponents.get(i), tockContext);
             }
+
             countDownLatch.countDown();
             log.info("Tock ({}) shutdown", register.getNamespace());
         } else {
@@ -438,4 +465,6 @@ public class Tock {
         }
         return this;
     }
+
+
 }
