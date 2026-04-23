@@ -45,11 +45,6 @@ public class TockContext {
      */
     private JobStore jobStore;
     /**
-     * 调度选主。同一时间只有一个主服务，用来做调度，其他服务等待和只执行Worker。
-     */
-    @NonNull
-    private TockMaster master;
-    /**
      * 工作队列
      */
     @NonNull

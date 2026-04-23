@@ -29,6 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 全局门面类，对外统一入口。
@@ -71,7 +72,7 @@ public class Tock {
 
 
 
-    private volatile boolean started = false;
+    private volatile AtomicBoolean started = new  AtomicBoolean(false);
 
 
 
@@ -108,10 +109,6 @@ public class Tock {
      * 使用时，调度器会定期检查到期任务并推送给 WorkerQueue 执行， Worker响应执行队列的执行操作。
      */
     private JobStore jobStore;
-    /**
-     * 调度选主。同一时间只有一个主服务，用来做调度，其他服务等待和只执行Worker。
-     */
-    private TockMaster master;
     /**
      * 工作队列
      */
@@ -176,7 +173,6 @@ public class Tock {
 
         String namespace = register.getNamespace();
 
-        this.master = this.register.getMaster();
         this.serializer = config.getSerializer();
         this.scheduler = config.getScheduler();
         this.worker = config.getWorker();
@@ -242,7 +238,6 @@ public class Tock {
                 .jobRegistry(jobRegistry)
                 .scheduleStore(scheduleStore)
                 .jobStore(jobStore)
-                .master(master)
                 .serializer(serializer)
                 .workerQueue(workerQueue)
                 .workerExecutor(workerExecutor)
@@ -270,12 +265,12 @@ public class Tock {
                 worker,
                 scheduler);
 
-
+        // 给基础组件设置 TockContext, 需要实现: TockContextAware
         components.forEach(component -> {
             injectContext(component, tockContext);
         });
         lifecyclesComponents = new ArrayList<>(LifecycleSupport.loaderLifecycles(components));
-
+        // 生命周期初始化。
         lifecyclesComponents.forEach(component -> {
             lifecycleInit(component, tockContext);
         });
@@ -298,8 +293,12 @@ public class Tock {
 
     private void lifecycleStart(Object component, TockContext context) {
         if (component != null && component instanceof Lifecycle) {
-            ((Lifecycle) component).start(context);
-            log.info("Start component: {}", component.getClass().getSimpleName());
+            if (!((Lifecycle) component).isStarted()) {
+                ((Lifecycle) component).start(context);
+                log.info("Start component: {}", component.getClass().getSimpleName());
+            } else {
+                log.info("Component already started: {}", component.getClass().getSimpleName());
+            }
         }
     }
 
@@ -307,6 +306,9 @@ public class Tock {
         if (component != null && component instanceof Lifecycle) {
             if (((Lifecycle) component).isStarted()) {
                 ((Lifecycle) component).stop();
+                log.info("Stop component: {}", component.getClass().getSimpleName());
+            } else {
+                log.info("Component already stopped: {}", component.getClass().getSimpleName());
             }
         }
     }
@@ -317,48 +319,15 @@ public class Tock {
      */
     public synchronized  Tock start() {
 
-        if (started) return this;
-        started = true;
-
-        this.lifecyclesComponents.forEach(component -> {
-            lifecycleStart(component, tockContext);
-        });
-        // 启动基础组件
-//        this.timeSynchronizer.start(tockContext);
-//        this.workerExecutor.start(tockContext);
-
-//        // 注册 Master 监听器
-//        master.addListener(new MasterListener() {
-//            @Override
-//            public void onBecomeMaster() {
-//                if (!scheduler.isRunning()) {
-//                    scheduler.start(tockContext);
-//                }
-//            }
-//
-//            @Override
-//            public void onLoseMaster() {
-//                if (scheduler.isRunning()) {
-//                    scheduler.stop();
-//                }
-//            }
-//        });
-//        // 当前 node 状态监听
-//        register.getCurrentNode().addNodeListener(new NodeListener() {
-//            @Override
-//            public void onRunning() {
-//                // 启动 Worker（所有节点）
-//                if (worker != null && !worker.isRunning()) {
-//                    worker.start(tockContext);
-//                }
-//            }
-//        });
-//        lifecycleStart(jobRegistry, tockContext);
-//        lifecycleStart(jobStore, tockContext);
-//        lifecycleStart(workerQueue, tockContext);
-        // 启动注册中心
-//        register.start(tockContext);
-
+        if (started.compareAndSet(false, true)) {
+            countDownLatch = new CountDownLatch(1);
+            this.lifecyclesComponents.forEach(component -> {
+                lifecycleStart(component, tockContext);
+            });
+            log.info("Tock ({}) started", register.getNamespace());
+        } else {
+            log.info("Tock Component already started");
+        }
 
         return this;
     }
@@ -367,12 +336,17 @@ public class Tock {
      * 优雅关闭所有组件。
      */
     public synchronized  void shutdown() {
-
-        for (int i = this.lifecyclesComponents.size() - 1; i >=0 ; i--) {
-            lifecycleStop(lifecyclesComponents.get(i), tockContext);
+        if (started.compareAndSet(true, false)) {
+            if (started.compareAndSet(true, false)) {
+                for (int i = this.lifecyclesComponents.size() - 1; i >=0 ; i--) {
+                    lifecycleStop(lifecyclesComponents.get(i), tockContext);
+                }
+            }
+            countDownLatch.countDown();
+            log.info("Tock ({}) shutdown", register.getNamespace());
+        } else {
+            log.info("Tock Component already stopped");
         }
-
-        countDownLatch.countDown();
     }
 
     /**
