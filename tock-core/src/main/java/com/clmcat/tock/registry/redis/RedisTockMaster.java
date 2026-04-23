@@ -4,6 +4,7 @@ import com.clmcat.tock.TockContext;
 import com.clmcat.tock.registry.MasterListener;
 import com.clmcat.tock.registry.TockMaster;
 import com.clmcat.tock.redis.RedisSupport;
+import com.clmcat.tock.registry.listener.MasterListeners;
 import com.clmcat.tock.serialize.Serializer;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -33,7 +34,7 @@ public class RedisTockMaster extends RedisSupport implements TockMaster {
     private final long leaseTimeoutMs;
     private final long heartbeatIntervalMs;
     private final AtomicBoolean master = new AtomicBoolean(false);
-    private final Set<MasterListener> listeners = ConcurrentHashMap.newKeySet();
+    private final MasterListeners listeners = new MasterListeners(this);
     private ScheduledExecutorService task;
 
     private volatile ScheduledFuture<?> startFuture;
@@ -57,12 +58,12 @@ public class RedisTockMaster extends RedisSupport implements TockMaster {
 
     @Override
     public void addListener(MasterListener listener) {
-        listeners.add(listener);
+        listeners.addListener(listener);
     }
 
     @Override
     public void removeListener(MasterListener listener) {
-        listeners.remove(listener);
+        listeners.removeListener(listener);
     }
 
     @Override
@@ -91,7 +92,7 @@ public class RedisTockMaster extends RedisSupport implements TockMaster {
         return masterName;
     }
 
-    @Override
+
     public boolean isRunning() {
         return startFuture != null && !startFuture.isCancelled();
     }
@@ -137,12 +138,12 @@ public class RedisTockMaster extends RedisSupport implements TockMaster {
     }
 
     private void onBecomeMaster() {
-        LinkedList<MasterListener> activeListeners = new LinkedList<>(listeners);
+        LinkedList<MasterListener> activeListeners = new LinkedList<>(listeners.getListeners());
         onBecomeMaster(activeListeners, 0);
     }
 
     private void onLoseMaster() {
-        LinkedList<MasterListener> activeListeners = new LinkedList<>(listeners);
+        LinkedList<MasterListener> activeListeners = new LinkedList<>(listeners.getListeners());
         onLoseMaster(activeListeners, 0);
     }
 

@@ -28,7 +28,7 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
     private final TaskSlot[] wheel = new TaskSlot[WHEEL_SIZE];
     private final ExecutorService executor;
     private final boolean ownedExecutor;
-    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean started = new AtomicBoolean(false);
     private final AtomicLong tickCounter = new AtomicLong(0L);
 
     private volatile Thread driverThread;
@@ -89,7 +89,7 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
         if (delayNanos <= 0L) {
             return submit(task);
         }
-        if (!running.get()) {
+        if (!started.get()) {
             throw new RejectedExecutionException("scheduler is not running");
         }
 
@@ -158,7 +158,7 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
 
     @Override
     public void start(TockContext context) {
-        if (!running.compareAndSet(false, true)) {
+        if (!started.compareAndSet(false, true)) {
             return;
         }
         // 预热线程池，避免后续首次提交任务时的额外调度延迟。
@@ -180,7 +180,7 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
 
     @Override
     public void stop() {
-        if (!running.compareAndSet(true, false)) {
+        if (!started.compareAndSet(true, false)) {
             if (ownedExecutor) {
                 executor.shutdownNow();
             }
@@ -201,16 +201,16 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
     }
 
     @Override
-    public boolean isRunning() {
-        return running.get();
+    public boolean isStarted() {
+        return started.get();
     }
 
     private void runDriverLoop() {
-        while (running.get()) {
+        while (started.get()) {
             long now = System.nanoTime();
 
             // 追赶逻辑：如果错过了多个 tick，必须顺序处理所有错过槽位，避免任务漏触发。
-            while (running.get() && now >= nextTickDeadlineNanos) {
+            while (started.get() && now >= nextTickDeadlineNanos) {
                 long tick = tickCounter.getAndIncrement();
                 int slotIndex = (int) (tick & WHEEL_MASK);
                 processSlot(slotIndex);
@@ -218,7 +218,7 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
                 now = System.nanoTime();
             }
 
-            if (!running.get()) {
+            if (!started.get()) {
                 break;
             }
             waitUntil(nextTickDeadlineNanos);
@@ -271,7 +271,7 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
      */
     private void waitUntil(long deadlineNanos) {
         long remaining;
-        while (running.get() && (remaining = deadlineNanos - System.nanoTime()) > 0L) {
+        while (started.get() && (remaining = deadlineNanos - System.nanoTime()) > 0L) {
             if (remaining > COARSE_PARK_NANOS) {
                 LockSupport.parkNanos(COARSE_PARK_NANOS);
             } else if (remaining > SPIN_THRESHOLD_NANOS) {
@@ -303,13 +303,13 @@ public class HighPrecisionWheelTaskScheduler implements TaskScheduler {
         int spins = 0;
         if (SpinWaitSupport.isOnSpinWaitAvailable()) {
             // Java 9+：使用 Thread.onSpinWait() 优化
-            while (running.get() && ((spins++ & 0x7F) != 0 || System.nanoTime() - deadlineNanos < 0)) {
+            while (started.get() && ((spins++ & 0x7F) != 0 || System.nanoTime() - deadlineNanos < 0)) {
                 SpinWaitSupport.onSpinWait();
             }
         } else {
             // Java 8：纯空循环，定期检查时间
             // 每 128 次自旋检查一次时间（掩码 0x7F）
-            while (running.get() && ((spins++ & 0x7F) != 0 || System.nanoTime() - deadlineNanos < 0)) {
+            while (started.get() && ((spins++ & 0x7F) != 0 || System.nanoTime() - deadlineNanos < 0)) {
                 // 空循环体
             }
         }

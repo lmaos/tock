@@ -54,7 +54,7 @@ public class ScheduledExecutorTaskScheduler implements TaskScheduler {
     }
 
     @Override
-    public boolean isRunning() {
+    public boolean isStarted() {
         return !scheduledExecutorService.isShutdown();
     }
 

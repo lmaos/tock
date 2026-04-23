@@ -407,7 +407,7 @@ public final class MemoryWorkerPrecisionStudyMain {
         }
 
         @Override
-        public boolean isRunning() {
+        public boolean isStarted() {
             return running.get();
         }
 

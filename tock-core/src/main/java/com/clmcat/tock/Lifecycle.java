@@ -18,5 +18,8 @@ public interface Lifecycle {
     /**
      * 是否正在运行。
      */
-    boolean isRunning();
+    boolean isStarted();
+
+
+    default void init(TockContext context) {}
 }

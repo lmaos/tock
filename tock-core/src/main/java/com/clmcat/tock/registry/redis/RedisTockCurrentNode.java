@@ -3,6 +3,7 @@ package com.clmcat.tock.registry.redis;
 import com.clmcat.tock.TockContext;
 import com.clmcat.tock.registry.NodeListener;
 import com.clmcat.tock.registry.TockCurrentNode;
+import com.clmcat.tock.registry.listener.NodeListeners;
 import com.clmcat.tock.serialize.Serializer;
 import lombok.extern.slf4j.Slf4j;
 import redis.clients.jedis.JedisPool;
@@ -21,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class RedisTockCurrentNode extends RedisTockNode implements TockCurrentNode {
 
-    private final Set<NodeListener> nodeListeners = ConcurrentHashMap.newKeySet();
+    private final NodeListeners nodeListeners = new NodeListeners(this);
     private final AtomicBoolean running = new AtomicBoolean(false);
     private ScheduledExecutorService heartbeatExecutor ;
 
@@ -38,15 +39,15 @@ public class RedisTockCurrentNode extends RedisTockNode implements TockCurrentNo
 
     @Override
     public void addNodeListener(NodeListener listener) {
-        nodeListeners.add(listener);
+        nodeListeners.addNodeListener(listener);
     }
 
     @Override
     public void removeNodeListener(NodeListener listener) {
-        nodeListeners.remove(listener);
+        nodeListeners.removeNodeListener(listener);
     }
 
-    @Override
+
     public void start(TockContext context) {
         if (!running.compareAndSet(false, true)) return;
         this.tockContext = context;
@@ -56,7 +57,7 @@ public class RedisTockCurrentNode extends RedisTockNode implements TockCurrentNo
         onRunning();
     }
 
-    @Override
+
     public void stop() {
         if (!running.compareAndSet(true, false)) return;
         if (heartbeatFuture != null) {
@@ -73,7 +74,7 @@ public class RedisTockCurrentNode extends RedisTockNode implements TockCurrentNo
         onStopped();
     }
 
-    @Override
+
     public boolean isRunning() {
         return running.get();
     }
@@ -87,24 +88,12 @@ public class RedisTockCurrentNode extends RedisTockNode implements TockCurrentNo
     }
 
     private void onRunning() {
-        for (NodeListener listener : nodeListeners) {
-            try {
-                listener.onRunning();
-            } catch (Exception e) {
-                log.error("NodeListener onRunning error", e);
-                throw new RuntimeException(e);
-            }
-        }
+        nodeListeners.onRunning();
+
     }
 
     private void onStopped() {
-        for (NodeListener listener : nodeListeners) {
-            try {
-                listener.onStopped();
-            } catch (Exception e) {
-                log.error("NodeListener onStopped error", e);
-            }
-        }
+        nodeListeners.onStopped();
     }
 
     @Override

@@ -4,11 +4,11 @@ import com.clmcat.tock.TockContext;
 import com.clmcat.tock.job.JobContext;
 import com.clmcat.tock.job.JobExecutor;
 import com.clmcat.tock.job.JobRegistry;
+import com.clmcat.tock.registry.NodeListener;
 import com.clmcat.tock.registry.TockRegister;
 import com.clmcat.tock.schedule.ScheduleConfig;
 import com.clmcat.tock.schedule.ScheduleExecutionGuard;
 import com.clmcat.tock.store.JobExecution;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Collections;
@@ -16,8 +16,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class DefaultTockWorker implements TockWorker {
@@ -36,10 +36,9 @@ public class DefaultTockWorker implements TockWorker {
     private static final long IDLE_SLEEP_MS = 100;
 
 
-
-
     private TockContext context;
-    private volatile boolean running = false;
+    private AtomicBoolean started = new AtomicBoolean(false);
+    private AtomicBoolean running = new AtomicBoolean(false);
     private WorkerQueue workerQueue;
     private JobRegistry jobRegistry;
     private TockRegister register;
@@ -48,59 +47,86 @@ public class DefaultTockWorker implements TockWorker {
 
     private final Map<String, Map<String, Future<?>>> executeJobFutures = new ConcurrentHashMap<>();
     private final Map<String, Map<String, JobExecution>> pendingExecutions = new ConcurrentHashMap<>();
-
+    private NodeListener nodeListener;
 
     public static DefaultTockWorker create() {
         return new DefaultTockWorker();
     }
 
+    @Override
+    public void init(TockContext context) {
+        this.context = context;
+        this.workerQueue = context.getWorkerQueue();
+        this.jobRegistry = context.getJobRegistry();
+        this.register = context.getRegister();
+    }
 
     @Override
     public synchronized void start(TockContext context) {
-        if (running) return;
-        this.context = context;
-        running = true;
-        log.info("DefaultTockWorker started");
-        this.workerQueue = context.getWorkerQueue();
-        this.jobRegistry = context.getJobRegistry();
-        register = context.getRegister();
-        // 恢复之前已加入的组（例如 stop 后重新 start）
-        for (String group : groups) {
-            startConsume(group);
+        if (started.compareAndSet(false, true)) {
+            register.getCurrentNode().addNodeListener(nodeListener = new NodeListener() {
+                @Override
+                public void onRunning() {
+                    resume();
+                }
+            });
+            log.info("DefaultTockWorker started");
+        } else {
+            log.warn("DefaultTockWorker already started");
         }
     }
+
+    protected void resume() {
+        if (!isStarted()) {
+            return;
+        }
+        if (running.compareAndSet(false, true)) {
+            // 恢复之前已加入的组（例如 stop 后重新 start）
+            for (String group : groups) {
+                startConsume(group);
+            }
+        }
+    }
+
+    protected void pause(boolean force) {
+        if (running.compareAndSet(true, false)) {
+            if (workerQueue != null && workerQueue instanceof SubscribableWorkerQueue) {
+                for (String group : groups) {
+                    ((SubscribableWorkerQueue) workerQueue).unsubscribe(group);
+                }
+            }
+            pullFutures.values().forEach(f -> f.cancel(force));
+            pullFutures.clear();
+            executeJobFutures.forEach((group, jobFutures) -> {
+                jobFutures.forEach((k, v) -> v.cancel(force));
+            });
+            executeJobFutures.clear();
+            requeueAllPendingExecutions();
+        }
+    }
+
 
     @Override
     public synchronized void stop() {
-        running = false;
-        log.info("DefaultTockWorker stopped");
-        pullFutures.values().forEach(f -> f.cancel(true));
-        pullFutures.clear();
-        // 对于订阅模式，取消所有订阅
-        if (workerQueue != null && workerQueue instanceof SubscribableWorkerQueue) {
-            for (String group : groups) {
-                ((SubscribableWorkerQueue) workerQueue).unsubscribe(group);
-            }
+        if (started.compareAndSet(true, false)) {
+            log.info("DefaultTockWorker stopped - 0");
+            register.getCurrentNode().removeNodeListener(nodeListener);
+            // 对于订阅模式，取消所有订阅
+            pause(true);
+            log.info("DefaultTockWorker stopped - 1");
+        } else {
+            log.warn("DefaultTockWorker already stopped");
         }
-        executeJobFutures.forEach((group, jobFutures) -> {
-            jobFutures.forEach((k,v) -> v.cancel(true));
-        });
-        executeJobFutures.clear();
-        requeueAllPendingExecutions();
-        log.info("DefaultTockWorker stopped");
     }
 
     @Override
-    public boolean isRunning() {
-        return running;
+    public boolean isStarted() {
+        return started.get();
     }
 
     @Override
     public void joinGroup(String groupName) {
-        if (!running) {
-            throw new IllegalStateException("Worker not started");
-        };
-        log.info("DefaultTockWorker joinGroup");
+
         if (this.workerQueue == null) {
             throw new IllegalStateException("workerQueue is null");
         }
@@ -109,14 +135,19 @@ public class DefaultTockWorker implements TockWorker {
         }
         if (!groups.add(groupName)) {
             // 已经加入过，忽略
+            log.warn("Group {} already exists", groupName);
             return;
         }
-
-        startConsume(groupName);
+        log.info("DefaultTockWorker joinGroup");
+        // 只有Worker真实运行才允许Join组
+        if (isStarted() && running.get()) {
+            startConsume(groupName);
+        }
     }
 
     // 提取公共消费启动逻辑
     private void startConsume(String groupName) {
+        log.info("DefaultTockWorker startConsume: {}", groupName);
         if (workerQueue instanceof SubscribableWorkerQueue) {
             ((SubscribableWorkerQueue) workerQueue).subscribe(groupName, this::executeJob);
         } else if (workerQueue instanceof PullableWorkerQueue) {
@@ -128,13 +159,13 @@ public class DefaultTockWorker implements TockWorker {
     }
 
     void executePollJob(String groupName, PullableWorkerQueue  pollableWorkerQueue) {
-        if (!running) {
+        if (!isStarted()) {
             log.warn("DefaultTockWorker not started, executePollJob failed");
             return;
         }
         Future<?> submit = context.getConsumerExecutor().submit(() -> {
             int count = 0;
-            while (running && !Thread.currentThread().isInterrupted()) {
+            while (isStarted() && !Thread.currentThread().isInterrupted()) {
                 try {
                     JobExecution poll = ((PullableWorkerQueue) workerQueue).poll(groupName, POLL_TIMEOUT_MS);
                     if (poll != null) {
@@ -158,7 +189,7 @@ public class DefaultTockWorker implements TockWorker {
     }
 
     void executeJob(JobExecution jobExecution) {
-        if (!running) {
+        if (!isStarted()) {
             return;
         }
         trackPendingExecution(jobExecution);
@@ -182,7 +213,7 @@ public class DefaultTockWorker implements TockWorker {
     }
 
     private void executeWhenDue(JobExecution jobExecution) {
-        if (!running) {
+        if (!isStarted()) {
             return;
         }
         onExecutionDue(jobExecution, context.currentTimeMillis());
@@ -249,7 +280,7 @@ public class DefaultTockWorker implements TockWorker {
 
     @Override
     public void leaveGroup(String groupName) {
-        if (!running) return;
+        if (!isStarted()) return;
         if (!groups.remove(groupName)) return;
         log.info("DefaultTockWorker leaveGroup");
         if (this.workerQueue == null) {

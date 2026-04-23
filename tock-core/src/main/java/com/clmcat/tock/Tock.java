@@ -1,14 +1,14 @@
 package com.clmcat.tock;
 
+import com.clmcat.tock.health.NodeHealthMaintainer;
 import com.clmcat.tock.job.DefaultJobRegistry;
 import com.clmcat.tock.job.JobExecutor;
 import com.clmcat.tock.job.JobRegistry;
-import com.clmcat.tock.registry.MasterListener;
-import com.clmcat.tock.registry.NodeListener;
 import com.clmcat.tock.registry.TockMaster;
 import com.clmcat.tock.registry.TockRegister;
 import com.clmcat.tock.schedule.ScheduleConfig;
 import com.clmcat.tock.schedule.ScheduleStore;
+import com.clmcat.tock.utils.LifecycleSupport;
 import com.clmcat.tock.worker.scheduler.ScheduledExecutorTaskScheduler;
 import com.clmcat.tock.scheduler.EventDrivenCronScheduler;
 import com.clmcat.tock.worker.scheduler.TaskScheduler;
@@ -24,11 +24,10 @@ import com.clmcat.tock.time.TimeSynchronizer;
 import com.clmcat.tock.worker.DefaultTockWorker;
 import com.clmcat.tock.worker.TockWorker;
 import com.clmcat.tock.worker.WorkerQueue;
-import com.clmcat.tock.worker.scheduler.HighPrecisionWheelTaskScheduler;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.*;
 
 /**
@@ -135,6 +134,10 @@ public class Tock {
     private ExecutorService consumerExecutor;
 
     /**
+     * 节点监控
+     */
+    private NodeHealthMaintainer nodeHealthMaintainer;
+    /**
      * 管理用户的线程池， true时，当 shutdown 时候会关闭线程池。 false 不会强制关闭，
      */
     private boolean manageThreadPools;
@@ -145,7 +148,8 @@ public class Tock {
 
 
     private CountDownLatch countDownLatch = new CountDownLatch(1);
-
+    private final List<Object> components;
+    private final List<Lifecycle> lifecyclesComponents;
 
     /**
      * 使用 config() 工厂方法
@@ -239,47 +243,44 @@ public class Tock {
                 .scheduleStore(scheduleStore)
                 .jobStore(jobStore)
                 .master(master)
-                .workerQueue(workerQueue)
                 .serializer(serializer)
+                .workerQueue(workerQueue)
+                .workerExecutor(workerExecutor)
                 .worker(worker)
                 .scheduler(scheduler)
-                .workerExecutor(workerExecutor)
                 .consumerExecutor(consumerExecutor)
                 .schedulerExecutor(schedulerExecutor)
                 .timeProvider(timeProvider)
                 .timeSource(timeSynchronizer)
                 .build();
 
-        injectContext(config, tockContext);
-        injectContext(timeProvider, tockContext);
-        injectContext(workerExecutor, tockContext);
-        injectContext(timeSynchronizer, tockContext);
-        injectContext(jobRegistry, tockContext);
-        injectContext(scheduleStore, tockContext);
-        injectContext(jobStore, tockContext);
-        injectContext(master, tockContext);
-        injectContext(workerQueue, tockContext);
-        injectContext(serializer, tockContext);
-        injectContext(worker, tockContext);
-        injectContext(scheduler, tockContext);
-    }
 
-//    private void tuneWorkerExecutorForTimeSource() {
-//        if (!(workerExecutor instanceof HighPrecisionWheelTaskScheduler)) {
-//            return;
-//        }
-//        if (timeProvider instanceof SystemTimeProvider) {
-//            return;
-//        }
-//        HighPrecisionWheelTaskScheduler scheduler = (HighPrecisionWheelTaskScheduler) workerExecutor;
-//        long before = scheduler.advanceNanos();
-//        scheduler.applyDistributedDefaultAdvanceIfNeeded();
-//        long after = scheduler.advanceNanos();
-//        if (after != before) {
-//            log.debug("Adjusted HighPrecisionWheelTaskScheduler advance from {}ns to {}ns for distributed time source {}",
-//                    before, after, timeProvider.getClass().getSimpleName());
-//        }
-//    }
+        this.components = Arrays.asList(
+                config,
+                serializer,
+                register,
+                timeProvider,
+                timeSynchronizer,
+                nodeHealthMaintainer,
+                workerExecutor,
+                workerQueue,
+                jobRegistry,
+                jobStore,
+                scheduleStore,
+                worker,
+                scheduler);
+
+
+        components.forEach(component -> {
+            injectContext(component, tockContext);
+        });
+        lifecyclesComponents = new ArrayList<>(LifecycleSupport.loaderLifecycles(components));
+
+        lifecyclesComponents.forEach(component -> {
+            lifecycleInit(component, tockContext);
+        });
+
+    }
 
 
     private void injectContext(Object component, TockContext context) {
@@ -288,15 +289,25 @@ public class Tock {
         }
     }
 
+    private void lifecycleInit(Object component, TockContext context) {
+        if (component != null && component instanceof Lifecycle) {
+            ((Lifecycle) component).init(context);
+            log.info("Initialized component: {}", component.getClass().getSimpleName());
+        }
+    }
+
     private void lifecycleStart(Object component, TockContext context) {
         if (component != null && component instanceof Lifecycle) {
             ((Lifecycle) component).start(context);
+            log.info("Start component: {}", component.getClass().getSimpleName());
         }
     }
 
     private void lifecycleStop(Object component, TockContext context) {
         if (component != null && component instanceof Lifecycle) {
-            ((Lifecycle) component).start(context);
+            if (((Lifecycle) component).isStarted()) {
+                ((Lifecycle) component).stop();
+            }
         }
     }
 
@@ -308,41 +319,45 @@ public class Tock {
 
         if (started) return this;
         started = true;
+
+        this.lifecyclesComponents.forEach(component -> {
+            lifecycleStart(component, tockContext);
+        });
         // 启动基础组件
-        this.timeSynchronizer.start(tockContext);
-        this.workerExecutor.start(tockContext);
+//        this.timeSynchronizer.start(tockContext);
+//        this.workerExecutor.start(tockContext);
 
-        // 注册 Master 监听器
-        master.addListener(new MasterListener() {
-            @Override
-            public void onBecomeMaster() {
-                if (!scheduler.isRunning()) {
-                    scheduler.start(tockContext);
-                }
-            }
-
-            @Override
-            public void onLoseMaster() {
-                if (scheduler.isRunning()) {
-                    scheduler.stop();
-                }
-            }
-        });
-        // 当前 node 状态监听
-        register.getCurrentNode().addNodeListener(new NodeListener() {
-            @Override
-            public void onRunning() {
-                // 启动 Worker（所有节点）
-                if (worker != null && !worker.isRunning()) {
-                    worker.start(tockContext);
-                }
-            }
-        });
-        lifecycleStart(jobRegistry, tockContext);
-        lifecycleStart(jobStore, tockContext);
-        lifecycleStart(workerQueue, tockContext);
+//        // 注册 Master 监听器
+//        master.addListener(new MasterListener() {
+//            @Override
+//            public void onBecomeMaster() {
+//                if (!scheduler.isRunning()) {
+//                    scheduler.start(tockContext);
+//                }
+//            }
+//
+//            @Override
+//            public void onLoseMaster() {
+//                if (scheduler.isRunning()) {
+//                    scheduler.stop();
+//                }
+//            }
+//        });
+//        // 当前 node 状态监听
+//        register.getCurrentNode().addNodeListener(new NodeListener() {
+//            @Override
+//            public void onRunning() {
+//                // 启动 Worker（所有节点）
+//                if (worker != null && !worker.isRunning()) {
+//                    worker.start(tockContext);
+//                }
+//            }
+//        });
+//        lifecycleStart(jobRegistry, tockContext);
+//        lifecycleStart(jobStore, tockContext);
+//        lifecycleStart(workerQueue, tockContext);
         // 启动注册中心
-        register.start(tockContext);
+//        register.start(tockContext);
 
 
         return this;
@@ -352,19 +367,11 @@ public class Tock {
      * 优雅关闭所有组件。
      */
     public synchronized  void shutdown() {
-        if (scheduler != null && scheduler.isRunning()) scheduler.stop();
-        if (worker != null && worker.isRunning()) worker.stop();
-        if (register != null) register.stop();
-        // 关闭线程池
-        if (this.manageThreadPools) {
-            if (workerExecutor != null) workerExecutor.stop();
-            if (consumerExecutor != null) consumerExecutor.shutdownNow();
-            if (schedulerExecutor != null) schedulerExecutor.shutdownNow();
+
+        for (int i = this.lifecyclesComponents.size() - 1; i >=0 ; i--) {
+            lifecycleStop(lifecyclesComponents.get(i), tockContext);
         }
-        lifecycleStop(jobStore, tockContext);
-        lifecycleStop(workerQueue, tockContext);
-        lifecycleStop(jobRegistry, tockContext);
-        this.timeSynchronizer.stop();
+
         countDownLatch.countDown();
     }
 

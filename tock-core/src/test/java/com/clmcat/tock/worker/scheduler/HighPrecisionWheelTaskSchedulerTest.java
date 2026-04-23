@@ -115,7 +115,7 @@ class HighPrecisionWheelTaskSchedulerTest {
         }
 
         Assertions.assertTrue(doneLatch.await(10, TimeUnit.SECONDS));
-        Assertions.assertTrue(scheduler.isRunning());
+        Assertions.assertTrue(scheduler.isStarted());
     }
 
     @Test

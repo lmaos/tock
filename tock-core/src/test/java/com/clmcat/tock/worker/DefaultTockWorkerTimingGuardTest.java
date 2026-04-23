@@ -119,7 +119,7 @@ class DefaultTockWorkerTimingGuardTest {
         }
 
         @Override
-        public boolean isRunning() {
+        public boolean isStarted() {
             return true;
         }
 
@@ -252,7 +252,7 @@ class DefaultTockWorkerTimingGuardTest {
         }
 
         @Override
-        public boolean isRunning() {
+        public boolean isStarted() {
             return true;
         }
     }

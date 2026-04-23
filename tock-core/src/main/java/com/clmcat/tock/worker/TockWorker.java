@@ -34,7 +34,7 @@ public interface TockWorker extends Lifecycle {
     /**
      * 当前 Worker 是否正在运行。
      */
-    boolean isRunning();
+    boolean isStarted();
 
     /**
      * 获取 Worker 当前所属的所有工作组。

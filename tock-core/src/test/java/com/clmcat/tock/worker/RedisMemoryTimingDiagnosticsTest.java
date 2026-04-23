@@ -261,8 +261,8 @@ class RedisMemoryTimingDiagnosticsTest {
         }
 
         @Override
-        public boolean isRunning() {
-            return !(delegate instanceof com.clmcat.tock.Lifecycle) || ((com.clmcat.tock.Lifecycle) delegate).isRunning();
+        public boolean isStarted() {
+            return !(delegate instanceof com.clmcat.tock.Lifecycle) || ((com.clmcat.tock.Lifecycle) delegate).isStarted();
         }
     }
 

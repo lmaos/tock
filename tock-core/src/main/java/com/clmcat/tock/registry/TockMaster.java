@@ -6,7 +6,7 @@ import com.clmcat.tock.TockContext;
 /**
  * 选择自己是主机，成为主机， isMaster 返回true
  */
-public interface TockMaster extends Lifecycle {
+public interface TockMaster  {
     /**
      * 当前是否是主机, 非阻塞。
      * @return true 是主机
@@ -28,6 +28,8 @@ public interface TockMaster extends Lifecycle {
      * 停止竞争，如果我是主机则释放主机。
      */
     void stop();
+
+    boolean isRunning();
 
 
     String getMasterName();

@@ -180,7 +180,7 @@ class EventDrivenCronSchedulerTimingTest {
         }
 
         @Override
-        public boolean isRunning() {
+        public boolean isStarted() {
             return true;
         }
     }
@@ -428,7 +428,7 @@ class EventDrivenCronSchedulerTimingTest {
         }
 
         @Override
-        public boolean isRunning() {
+        public boolean isStarted() {
             return true;
         }
     }

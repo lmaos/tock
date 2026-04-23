@@ -55,7 +55,7 @@ public class MemoryTockRegisterTest {
                     @Override public String getRuntimeState(String key) { return null; }
                     @Override public void start(TockContext context) { }
                     @Override public void stop() { }
-                    @Override public boolean isRunning() { return true; }
+                    @Override public boolean isStarted() { return true; }
                 })
                 .master(register.getMaster())
                 .scheduleStore(MemoryScheduleStore.create())

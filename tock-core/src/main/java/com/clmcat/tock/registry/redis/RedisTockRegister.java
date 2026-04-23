@@ -37,7 +37,7 @@ public class RedisTockRegister extends RedisSupport implements TockRegister {
     private final long heartbeatIntervalMs;
     private final RedisTockMaster master;
     private final RedisTockCurrentNode currentNode;
-    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean started = new AtomicBoolean(false);
     private final Object timeJedisMonitor = new Object();
     private volatile TockContext context;
     private volatile Jedis timeJedis;
@@ -183,7 +183,7 @@ public class RedisTockRegister extends RedisSupport implements TockRegister {
 
     @Override
     public void start(TockContext context) {
-        if (!running.compareAndSet(false, true)) return;
+        if (!started.compareAndSet(false, true)) return;
         this.context = context;
         // 先启动节点，再启动主机，这样主机选举能直接拿到当前节点 ID。
         currentNode.start(context);
@@ -192,7 +192,7 @@ public class RedisTockRegister extends RedisSupport implements TockRegister {
 
     @Override
     public void stop() {
-        if (!running.compareAndSet(true, false)) return;
+        if (!started.compareAndSet(true, false)) return;
         master.stop();
         currentNode.stop();
         closeTimeJedis();
@@ -202,8 +202,8 @@ public class RedisTockRegister extends RedisSupport implements TockRegister {
     }
 
     @Override
-    public boolean isRunning() {
-        return running.get();
+    public boolean isStarted() {
+        return started.get();
     }
 
 

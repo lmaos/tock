@@ -4,6 +4,7 @@ import com.clmcat.tock.TockContext;
 import com.clmcat.tock.registry.NodeListener;
 import com.clmcat.tock.registry.TockCurrentNode;
 import com.clmcat.tock.money.MemoryManager;
+import com.clmcat.tock.registry.listener.NodeListeners;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
@@ -21,7 +22,7 @@ public class MemoryTockNode implements TockCurrentNode {
     private MemoryManager memoryManager;
     private TockContext tockContext;
 
-    private Set<NodeListener> nodeListeners = ConcurrentHashMap.newKeySet();
+    private final NodeListeners nodeListeners = new NodeListeners(this);
 
     // 续租的时间。
     private long leaseTime;
@@ -96,36 +97,22 @@ public class MemoryTockNode implements TockCurrentNode {
 
     @Override
     public void addNodeListener(NodeListener listener) {
-        nodeListeners.add(listener);
+        nodeListeners.addNodeListener(listener);
     }
 
     @Override
     public void removeNodeListener(NodeListener listener) {
-        nodeListeners.remove(listener);
+        nodeListeners.removeNodeListener(listener);
     }
 
     void onRunning() {
-        for (NodeListener listener : nodeListeners) {
-            try {
-                listener.onRunning();
-            } catch (Exception e) {
-               log.error("NodeListener onRunning error", e);
-               throw new RuntimeException(e);
-            }
-        }
+        nodeListeners.onRunning();
     }
 
     void onStopped() {
-        for (NodeListener listener : nodeListeners) {
-            try {
-                listener.onStopped();
-            } catch (Exception e) {
-                log.error("NodeListener onStopped error", e);
-            }
-        }
+        nodeListeners.onStopped();
     }
 
-    @Override
     public void start(TockContext context) {
         if (nodeRegisterFuture == null) {
             this.tockContext = context;
@@ -141,7 +128,6 @@ public class MemoryTockNode implements TockCurrentNode {
 
     }
 
-    @Override
     public void stop() {
         if (nodeRegisterFuture != null) {
             nodeRegisterFuture.cancel(true);
@@ -158,7 +144,6 @@ public class MemoryTockNode implements TockCurrentNode {
         }
     }
 
-    @Override
     public boolean isRunning() {
         return status == NodeStatus.ACTIVE;
     }

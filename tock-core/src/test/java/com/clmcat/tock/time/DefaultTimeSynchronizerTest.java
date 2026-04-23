@@ -36,7 +36,7 @@ public class DefaultTimeSynchronizerTest {
 
         synchronizer.start(null);
 
-        Assertions.assertFalse(synchronizer.isRunning());
+        Assertions.assertFalse(synchronizer.isStarted());
     }
 
     @Test

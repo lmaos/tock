@@ -32,7 +32,7 @@ public class RedisSubscribableWorkerQueue extends RedisSupport implements Subscr
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<Consumer<JobExecution>>> subscribers = new ConcurrentHashMap<>();
     private DispatcherShard[] shards;
     private volatile TockContext context;
-    private volatile boolean running = false;
+    private volatile boolean started = false;
     private final int shardCount;
 
     public RedisSubscribableWorkerQueue(String namespace, JedisPool jedisPool) {
@@ -59,16 +59,16 @@ public class RedisSubscribableWorkerQueue extends RedisSupport implements Subscr
     }
     @Override
     public void start(TockContext context) {
-        if (running) {
+        if (started) {
             return;
         }
-        running = true;
+        started = true;
         init();
     }
 
     @Override
     public void stop() {
-        running = false;
+        started = false;
         for (DispatcherShard shard : shards) {
             shard.shutdown();
         }
@@ -76,8 +76,8 @@ public class RedisSubscribableWorkerQueue extends RedisSupport implements Subscr
     }
 
     @Override
-    public boolean isRunning() {
-        return running;
+    public boolean isStarted() {
+        return started;
     }
 
 

@@ -43,7 +43,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.concurrent.locks.LockSupport;
 
@@ -343,8 +342,8 @@ public final class RedisHighPrecisionStudyMain {
         }
 
         @Override
-        public boolean isRunning() {
-            return !(delegate instanceof com.clmcat.tock.Lifecycle) || ((com.clmcat.tock.Lifecycle) delegate).isRunning();
+        public boolean isStarted() {
+            return !(delegate instanceof com.clmcat.tock.Lifecycle) || ((com.clmcat.tock.Lifecycle) delegate).isStarted();
         }
     }
 

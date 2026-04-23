@@ -20,7 +20,7 @@ public class MemoryTockRegister implements TockRegister {
     private MemoryManager memoryManager;
     private TockContext tockContext;
 
-    private boolean running = false;
+    private boolean started = false;
     private String namespace;
 
     public MemoryTockRegister(String namespace, MemoryManager memoryManager) {
@@ -37,7 +37,7 @@ public class MemoryTockRegister implements TockRegister {
 
     @Override
     public void start(TockContext context) {
-        running = true;
+        started = true;
         this.tockContext = context;
         master.start(context);
         currentNode.start(context);
@@ -45,14 +45,14 @@ public class MemoryTockRegister implements TockRegister {
 
     @Override
     public void stop() {
-        running = false;
+        started = false;
         master.stop();
         currentNode.stop();
     }
 
     @Override
-    public boolean isRunning() {
-        return running;
+    public boolean isStarted() {
+        return started;
     }
 
 

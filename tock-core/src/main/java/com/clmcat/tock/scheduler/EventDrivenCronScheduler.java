@@ -5,6 +5,7 @@ import com.clmcat.tock.TockContext;
 import com.clmcat.tock.TockContextAware;
 import com.clmcat.tock.cron.CronCalculators;
 import com.clmcat.tock.cron.CronCalculator;
+import com.clmcat.tock.registry.MasterListener;
 import com.clmcat.tock.registry.TockNode;
 import com.clmcat.tock.registry.TockRegister;
 import com.clmcat.tock.schedule.ScheduleConfig;
@@ -21,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
@@ -34,7 +36,8 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
     private ScheduleStore scheduleStore;
     private WorkerQueue workerQueue;
     private TockRegister register;
-    private volatile boolean running = false;
+    private AtomicBoolean started = new AtomicBoolean(false);
+    private AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicLong lastConfigVersion = new AtomicLong(-1);
     private volatile Map<String, ScheduleConfig> cachedConfigMap = new ConcurrentHashMap<>();
 
@@ -45,6 +48,8 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
     private ScheduledFuture<?> startWorkerNodeCleanerFuture;
     private ScheduledFuture<?> startConfigRefreshFuture;
     private TockContext context;
+
+    private MasterListener masterListener;
 
 
     public static EventDrivenCronScheduler create() {
@@ -61,30 +66,76 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
 
     @Override
     public void start(TockContext context) {
-        if (running) return;
-        running = true;
-        setTockContext(context);
+        if (!started.compareAndSet(false, true)) return;
 
-        // 默认先进行执行。
-        startWorkerNodeCleaner();
-        // 直接刷新一次配置， 避免等待定时器第一次触发。
-        refreshSchedulesIfNeeded();
+        register.getMaster().addListener(masterListener = new MasterListener() {
+            @Override
+            public void onBecomeMaster() {
+                resume();
+            }
 
-        // 配置刷新（低频）
-        startConfigRefreshFuture = context.getSchedulerExecutor()
-                .scheduleWithFixedDelay(this::refreshSchedulesIfNeeded,
-                        0,
-                        DEFAULT_CONFIG_REFRESH_INTERVAL_MS,
-                        TimeUnit.MILLISECONDS);
-
-        startWorkerNodeCleanerFuture = context.getSchedulerExecutor()
-                .scheduleWithFixedDelay(this::startWorkerNodeCleaner,
-                        0,
-                        CLEANER_INTERVAL_MS,
-                        TimeUnit.MILLISECONDS);
-
+            @Override
+            public void onLoseMaster() {
+                pause();
+            }
+        });
 
         log.info("CronScheduler started");
+    }
+
+
+    protected void resume() {
+        if (!this.isStarted()) return;
+
+        if (running.compareAndSet(false, true)) {
+            // 默认先进行执行。
+            startWorkerNodeCleaner();
+            // 直接刷新一次配置， 避免等待定时器第一次触发。
+            refreshSchedulesIfNeeded();
+            if (startConfigRefreshFuture == null) {
+                // 配置刷新（低频）
+                startConfigRefreshFuture = context.getSchedulerExecutor()
+                        .scheduleWithFixedDelay(this::refreshSchedulesIfNeeded,
+                                0,
+                                DEFAULT_CONFIG_REFRESH_INTERVAL_MS,
+                                TimeUnit.MILLISECONDS);
+            }
+            if (startWorkerNodeCleanerFuture == null) {
+                startWorkerNodeCleanerFuture = context.getSchedulerExecutor()
+                        .scheduleWithFixedDelay(this::startWorkerNodeCleaner,
+                                0,
+                                CLEANER_INTERVAL_MS,
+                                TimeUnit.MILLISECONDS);
+            }
+            log.info("CronScheduler resume");
+        } else {
+            log.info("CronScheduler already resumed");
+        }
+
+
+
+    }
+    protected void pause() {
+        if (running.compareAndSet(true, false)) {
+            if (startConfigRefreshFuture != null) {
+                startConfigRefreshFuture.cancel(true);
+                startConfigRefreshFuture = null;
+
+            }
+            if (startWorkerNodeCleanerFuture != null) {
+                startWorkerNodeCleanerFuture.cancel(true);
+                startWorkerNodeCleanerFuture = null;
+            }
+            for (ScheduledFuture<?> future : scheduledFutures.values()) {
+                future.cancel(false);
+            }
+            scheduledFutures.clear();
+            lastFireTimeLocalCache.clear();
+            lastConfigVersion.set(-1);
+            log.info("CronScheduler paused");
+        } else {
+            log.info("CronScheduler already paused");
+        }
     }
 
     void push(JobExecution execution) {
@@ -175,7 +226,7 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
     }
 
     void scheduleConfig(ScheduleConfig config, long nextFireBaseTime, long currentTime) {
-        if (!running) return;
+        if (!this.isStarted()) return;
         if (config == null || !config.isEnabled()) return;
 
         String scheduleId = config.getScheduleId();
@@ -192,7 +243,7 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
     }
 
     void onFire(ScheduleConfig snapshot, long nextFireTime) {
-        if (!running) return;
+        if (!this.isStarted()) return;
         String scheduleId = snapshot.getScheduleId();
         ScheduleConfig latest = cachedConfigMap.get(scheduleId);
 
@@ -312,28 +363,16 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
 
     @Override
     public void stop() {
-        running = false;
-        if (startConfigRefreshFuture != null) {
-            startConfigRefreshFuture.cancel(true);
-            startConfigRefreshFuture = null;
-
+        if (started.compareAndSet(true, false)) {
+            register.getMaster().removeListener(masterListener);
+            pause();
+            log.info("CronScheduler stopped");
         }
-        if (startWorkerNodeCleanerFuture != null) {
-            startWorkerNodeCleanerFuture.cancel(true);
-            startWorkerNodeCleanerFuture = null;
-        }
-        for (ScheduledFuture<?> future : scheduledFutures.values()) {
-            future.cancel(false);
-        }
-        scheduledFutures.clear();
-        lastFireTimeLocalCache.clear();
-        lastConfigVersion.set(-1);
-        log.info("CronScheduler stopped");
     }
 
     @Override
-    public boolean isRunning() {
-        return running;
+    public boolean isStarted() {
+        return started.get();
     }
 
     @Override

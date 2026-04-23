@@ -374,7 +374,7 @@ public final class PerformanceBenchmarkMain {
         }
 
         @Override
-        public boolean isRunning() {
+        public boolean isStarted() {
             return running.get();
         }
     }

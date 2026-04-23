@@ -4,6 +4,7 @@ import com.clmcat.tock.TockContext;
 import com.clmcat.tock.registry.MasterListener;
 import com.clmcat.tock.registry.TockMaster;
 import com.clmcat.tock.money.MemoryManager;
+import com.clmcat.tock.registry.listener.MasterListeners;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -20,7 +21,7 @@ public class MemoryTockMaster implements TockMaster {
     private TockContext tockContext;
     private AtomicBoolean master = new AtomicBoolean(false);
     private final String masterName;
-    private Set<MasterListener> listeners = ConcurrentHashMap.newKeySet();
+    private MasterListeners listeners = new MasterListeners(this);
     private ScheduledFuture<?> startFuture;
     // 续租的时间。
     private long leaseTime;
@@ -53,22 +54,21 @@ public class MemoryTockMaster implements TockMaster {
 
     @Override
     public void addListener(MasterListener listener) {
-        listeners.add(listener);
+        listeners.addListener(listener);
     }
 
     @Override
     public void removeListener(MasterListener listener) {
-        listeners.remove(listener);
+        listeners.removeListener(listener);
     }
 
     private void onBecomeMaster() {
-        LinkedList<MasterListener> activeListeners = new LinkedList<>(listeners);
+        LinkedList<MasterListener> activeListeners = new LinkedList<>(listeners.getListeners());
         onBecomeMaster(activeListeners, 0);
     }
 
     private void onLoseMaster() {
-        LinkedList<MasterListener> activeListeners = new LinkedList<>();
-        activeListeners.addAll(listeners);
+        LinkedList<MasterListener> activeListeners = new LinkedList<>(listeners.getListeners());
         onLoseMaster(activeListeners, 0);
     }
 
@@ -167,7 +167,8 @@ public class MemoryTockMaster implements TockMaster {
     }
 
 
-    @Override
+
+
     public void start(TockContext context) {
         if (startFuture == null) {
             this.tockContext = context;
@@ -177,7 +178,7 @@ public class MemoryTockMaster implements TockMaster {
         }
     }
 
-    @Override
+
     public void stop() {
         if  (startFuture != null) {
             startFuture.cancel(true);
@@ -198,7 +199,7 @@ public class MemoryTockMaster implements TockMaster {
         }
     }
 
-    @Override
+
     public boolean isRunning() {
         return startFuture != null && !startFuture.isCancelled();
     }

@@ -89,7 +89,7 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     /** 偏移量是否已经过首次初始化 */
     private final AtomicBoolean offsetInitialized = new AtomicBoolean(false);
     /** 同步器是否正在运行 */
-    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean started = new AtomicBoolean(false);
     /** 上一次参与稳定性判断的样本偏移 */
     private long lastSampledOffsetMs = Long.MIN_VALUE;
     /** 上一次同步发生时的单调纳秒时间 */
@@ -245,11 +245,11 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     @Override
     public synchronized void start(TockContext context) {
         if (isSystemTimeProvider) {
-            running.set(false);
+            started.set(false);
             return;
         }
 
-        if (!running.compareAndSet(false, true)) {
+        if (!started.compareAndSet(false, true)) {
             return;
         }
 
@@ -266,7 +266,7 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
 
     @Override
     public synchronized void stop() {
-        if (!running.compareAndSet(true, false)) {
+        if (!started.compareAndSet(true, false)) {
             return;
         }
         if (future != null) {
@@ -279,8 +279,8 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         }
     }
 
-    public boolean isRunning() {
-        return running.get();
+    public boolean isStarted() {
+        return started.get();
     }
 
     private ScheduledExecutorService createScheduler() {

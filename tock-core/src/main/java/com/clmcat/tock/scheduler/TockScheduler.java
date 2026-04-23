@@ -31,6 +31,6 @@ public interface TockScheduler extends Lifecycle {
     /**
      * 判断调度器是否正在运行。
      */
-    boolean isRunning();
+    boolean isStarted();
 
 }
