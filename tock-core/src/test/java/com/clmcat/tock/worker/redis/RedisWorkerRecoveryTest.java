@@ -66,6 +66,8 @@ public class RedisWorkerRecoveryTest extends RedisTestSupport {
         CountDownLatch latch = new CountDownLatch(1);
 
         try {
+            worker1.init(context1);
+            worker2.init(context2);
             register1.start(context1);
             worker1.start(context1);
             worker1.joinGroup("default");
