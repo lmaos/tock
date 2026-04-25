@@ -405,7 +405,9 @@ public class Tock {
         // config 被多个 Tock 依赖。
         if (started.compareAndSet(true, false)) {
             this.components.forEach(component -> {
-                ReferenceSupport.commonRemoveReference(component);
+                if (component != null) {
+                    ReferenceSupport.commonRemoveReference(component);
+                }
             });
             ReferenceSupport.configRemoveReference(config);
 

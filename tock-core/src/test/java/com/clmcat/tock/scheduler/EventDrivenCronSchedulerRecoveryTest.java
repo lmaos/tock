@@ -36,7 +36,7 @@ public class EventDrivenCronSchedulerRecoveryTest {
         fixture.timeSource.set(4_100L);
 
         TockNode expiredNode = fixture.masterRegister.getExpiredNodes().get(0);
-        fixture.scheduler.recoverExpiredNode(expiredNode);
+        fixture.scheduler.expiredNodeHandler(expiredNode);
 
         Assertions.assertEquals(1, fixture.workerQueue.executions.size());
         Assertions.assertEquals(execution.getExecutionId(), fixture.workerQueue.executions.get(0).getExecutionId());
@@ -55,7 +55,7 @@ public class EventDrivenCronSchedulerRecoveryTest {
         fixture.timeSource.set(4_100L);
 
         TockNode expiredNode = fixture.masterRegister.getExpiredNodes().get(0);
-        fixture.scheduler.recoverExpiredNode(expiredNode);
+        fixture.scheduler.expiredNodeHandler(expiredNode);
 
         Assertions.assertTrue(fixture.workerQueue.executions.isEmpty());
     }
@@ -76,7 +76,7 @@ public class EventDrivenCronSchedulerRecoveryTest {
         fixture.timeSource.set(4_100L);
 
         TockNode expiredNode = fixture.masterRegister.getExpiredNodes().get(0);
-        fixture.scheduler.recoverExpiredNode(expiredNode);
+        fixture.scheduler.expiredNodeHandler(expiredNode);
 
         Assertions.assertEquals(1, fixture.workerQueue.executions.size());
         Assertions.assertEquals(execution.getExecutionId(), fixture.workerQueue.executions.get(0).getExecutionId());
@@ -94,7 +94,7 @@ public class EventDrivenCronSchedulerRecoveryTest {
         fixture.timeSource.set(4_100L);
 
         TockNode expiredNode = fixture.masterRegister.getExpiredNodes().get(0);
-        fixture.scheduler.recoverExpiredNode(expiredNode);
+        fixture.scheduler.expiredNodeHandler(expiredNode);
 
         Assertions.assertTrue(fixture.workerQueue.executions.isEmpty());
     }
@@ -113,7 +113,7 @@ public class EventDrivenCronSchedulerRecoveryTest {
         private Fixture() {
             masterContext = context(masterRegister);
             workerContext = context(workerRegister);
-            scheduler.setTockContext(masterContext);
+            scheduler.init(masterContext);
         }
 
         private TockContext context(MemoryTockRegister register) {
@@ -126,7 +126,6 @@ public class EventDrivenCronSchedulerRecoveryTest {
             return TockContext.builder()
                     .config(config)
                     .register(register)
-                    .master(register.getMaster())
                     .scheduleStore(scheduleStore)
                     .jobStore(MemoryJobStore.create())
                     .workerQueue(workerQueue)

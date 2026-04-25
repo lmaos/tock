@@ -132,13 +132,11 @@ public class RedisWorkerRecoveryTest extends RedisTestSupport {
                 .config(config)
                 .register(register)
                 .jobRegistry(new DefaultJobRegistry())
-                .master(register.getMaster())
                 .scheduleStore(scheduleStore)
                 .jobStore(jobStore)
                 .workerQueue(queue)
                 .consumerExecutor(consumerExecutor)
                 .workerExecutor(workerExecutor)
-                .schedulerExecutor(schedulerExecutor)
                 .timeSource(new DefaultTimeSynchronizer(new RedisTimeProvider(jedisPool::getResource), 100L, 3))
                 .build();
     }

@@ -56,18 +56,17 @@ public class DefaultTockWorkerRecoveryDesignTest {
         TockContext context = TockContext.builder()
                 .config(config)
                 .register(register)
-                .master(register.getMaster())
                 .scheduleStore(scheduleStore)
                 .jobStore(jobStore)
                 .workerQueue(queue)
                 .jobRegistry(new DefaultJobRegistry())
                 .consumerExecutor(consumerExecutor)
                 .workerExecutor(workerExecutor)
-                .schedulerExecutor(schedulerExecutor)
                 .timeSource(timeSource)
                 .build();
 
         try {
+            worker.init(context);
             register.start(context);
             worker.start(context);
 

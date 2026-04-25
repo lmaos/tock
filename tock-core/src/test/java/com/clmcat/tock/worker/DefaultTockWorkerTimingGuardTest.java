@@ -34,15 +34,14 @@ class DefaultTockWorkerTimingGuardTest {
         TockContext context = TockContext.builder()
                 .config(Config.builder().register(register).scheduleStore(scheduleStore).workerQueue(workerQueue).build())
                 .register(register)
-                .master(register.getMaster())
                 .scheduleStore(scheduleStore)
                 .workerQueue(workerQueue)
                 .workerExecutor(workerExecutor)
                 .consumerExecutor(java.util.concurrent.Executors.newSingleThreadExecutor())
-                .schedulerExecutor(java.util.concurrent.Executors.newSingleThreadScheduledExecutor())
                 .timeSource(timeSource)
                 .build();
 
+        worker.init(context);
         worker.start(context);
 
         JobExecution execution = JobExecution.builder()
@@ -340,6 +339,11 @@ class DefaultTockWorkerTimingGuardTest {
 
         @Override
         public void clearAttributes() {
+        }
+
+        @Override
+        public long getLeaseTime() {
+            return 0L;
         }
 
         @Override

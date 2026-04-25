@@ -24,14 +24,12 @@ public class RedisSubscribableWorkerQueueTest extends RedisTestSupport {
         MemoryTockRegister register = new MemoryTockRegister("queue-register", MemoryManager.create());
         TockContext context = TockContext.builder()
                 .register(register)
-                .master(register.getMaster())
                 .scheduleStore(MemoryScheduleStore.create())
                 .jobStore(MemoryJobStore.create())
                 .workerQueue(queue)
                 .jobRegistry(new DefaultJobRegistry())
                 .consumerExecutor(consumerExecutor)
                 .workerExecutor(workerExecutor)
-                .schedulerExecutor(schedulerExecutor)
                 .timeSource(new com.clmcat.tock.time.DefaultTimeSynchronizer(new com.clmcat.tock.time.SystemTimeProvider(), 100L, 3))
                 .build();
         queue.setTockContext(context);
@@ -64,14 +62,12 @@ public class RedisSubscribableWorkerQueueTest extends RedisTestSupport {
         MemoryTockRegister register = new MemoryTockRegister("queue-register", MemoryManager.create());
         TockContext context = TockContext.builder()
                 .register(register)
-                .master(register.getMaster())
                 .scheduleStore(MemoryScheduleStore.create())
                 .jobStore(MemoryJobStore.create())
                 .workerQueue(queue)
                 .jobRegistry(new DefaultJobRegistry())
                 .consumerExecutor(consumerExecutor)
                 .workerExecutor(workerExecutor)
-                .schedulerExecutor(schedulerExecutor)
                 .timeSource(new com.clmcat.tock.time.DefaultTimeSynchronizer(new com.clmcat.tock.time.SystemTimeProvider(), 100L, 3))
                 .build();
         queue.setTockContext(context);

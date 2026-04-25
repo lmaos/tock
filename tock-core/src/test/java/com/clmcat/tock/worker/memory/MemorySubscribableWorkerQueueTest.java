@@ -27,7 +27,6 @@ public class MemorySubscribableWorkerQueueTest {
             MemorySubscribableWorkerQueue queue = new MemorySubscribableWorkerQueue();
             TockContext context = TockContext.builder()
                     .register(register)
-                    .master(register.getMaster())
                     .scheduleStore(MemoryScheduleStore.create())
                     .jobStore(MemoryJobStore.create())
                     .workerQueue(queue)

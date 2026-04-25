@@ -25,6 +25,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 class EventDrivenCronSchedulerTimingTest {
 
@@ -39,17 +40,16 @@ class EventDrivenCronSchedulerTimingTest {
         TockContext context = TockContext.builder()
                 .config(Config.builder().register(register).scheduleStore(scheduleStore).workerQueue(workerQueue).build())
                 .register(register)
-                .master(register.getMaster())
                 .scheduleStore(scheduleStore)
                 .workerQueue(workerQueue)
-                .schedulerExecutor(schedulerExecutor)
                 .consumerExecutor(new NoOpExecutorService())
                 .workerExecutor(new NoOpTaskScheduler())
                 .timeSource(timeSource)
                 .build();
 
-        scheduler.setTockContext(context);
-        setRunning(scheduler, true);
+        scheduler.init(context);
+        setField(scheduler, "schedulerExecutor", schedulerExecutor);
+        setStarted(scheduler, true);
 
         ScheduleConfig config = ScheduleConfig.builder()
                 .scheduleId("cron-advance")
@@ -59,16 +59,27 @@ class EventDrivenCronSchedulerTimingTest {
                 .zoneId("Asia/Shanghai")
                 .build();
 
-        scheduler.scheduleConfig(config, 9_999L, 9_003L);
+        try {
+            scheduler.scheduleConfig(config, 9_999L, 9_003L);
 
-        Assertions.assertEquals(997L, schedulerExecutor.lastDelayMs,
-                "next cron should be scheduled roughly one second before the next fire time, not immediately or two seconds later");
+            Assertions.assertEquals(997L, schedulerExecutor.lastDelayMs,
+                    "current logic pulls cron fire times forward by 1s when the remaining delay is still large");
+        } finally {
+            scheduler.stop();
+        }
     }
 
-    private void setRunning(EventDrivenCronScheduler scheduler, boolean running) throws Exception {
-        Field field = EventDrivenCronScheduler.class.getDeclaredField("running");
+    private void setStarted(EventDrivenCronScheduler scheduler, boolean started) throws Exception {
+        Field field = com.clmcat.tock.Lifecycle.AbstractNoImplLifecycle.class.getDeclaredField("started");
         field.setAccessible(true);
-        field.setBoolean(scheduler, running);
+        AtomicBoolean state = (AtomicBoolean) field.get(scheduler);
+        state.set(started);
+    }
+
+    private void setField(Object target, String name, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 
     private static final class FixedTimeSource implements com.clmcat.tock.time.TimeSource {
@@ -268,6 +279,11 @@ class EventDrivenCronSchedulerTimingTest {
 
         @Override
         public void clearAttributes() {
+        }
+
+        @Override
+        public long getLeaseTime() {
+            return 0;
         }
 
         @Override

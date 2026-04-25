@@ -29,13 +29,11 @@ public class RedisTockRegisterTest extends RedisTestSupport {
                         .workerQueue(workerQueue)
                         .build())
                 .register(register)
-                .master(register.getMaster())
                 .scheduleStore(scheduleStore)
                 .jobStore(jobStore)
                 .workerQueue(workerQueue)
                 .consumerExecutor(consumerExecutor)
                 .workerExecutor(workerExecutor)
-                .schedulerExecutor(schedulerExecutor)
                 .timeSource(new DefaultTimeSynchronizer(new RedisTimeProvider(jedisPool::getResource), 250L, 3))
                 .build();
 
