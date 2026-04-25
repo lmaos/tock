@@ -89,8 +89,13 @@ public class DefaultHealthMaintainer extends ResumableLifecycle.AbstractResumabl
 
     @Override
     public void onStop() {
-        context.getRegister().getMaster().removeListener(masterListener);
-        task.shutdownNow();
+        if (context != null && context.getRegister() != null && masterListener != null) {
+            context.getRegister().getMaster().removeListener(masterListener);
+        }
+        if (task != null) {
+            task.shutdownNow();
+            task = null;
+        }
     }
 
     protected void onResume() {
@@ -150,10 +155,16 @@ public class DefaultHealthMaintainer extends ResumableLifecycle.AbstractResumabl
 
     protected void onPause(boolean force) {
 
-        this.scheduledFuture.cancel(force);
+        if (this.scheduledFuture != null) {
+            this.scheduledFuture.cancel(force);
+        }
         this.scheduledFuture = null;
-        register.removeGroupAttribute("health.host");
-        healthServer.stop();
+        if (register != null) {
+            register.removeGroupAttribute("health.host");
+        }
+        if (healthServer != null) {
+            healthServer.stop();
+        }
         heartbeatManager.clear();
 
     }

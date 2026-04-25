@@ -80,7 +80,7 @@ public class HealthClientManager {
      *
      * @param nodeId 当前节点的唯一标识
      */
-    public void reportActive(String nodeId) {
+    public HealthResponse reportActive(String nodeId) {
         HealthClient client = clientRef.get();
         if (client != null) {
             try {
@@ -89,12 +89,15 @@ public class HealthClientManager {
                     log.warn("Heartbeat report failed: {}", resp);
                     closeCurrentClient(); // 标记失效，等待下次重连
                 }
+                return resp == null ? HealthResponse.NOT_FOUND : resp;
             } catch (Exception e) {
                 log.warn("Heartbeat report exception", e);
                 closeCurrentClient();
+                return HealthResponse.SYSTEM_ERROR;
             }
         } else {
             log.warn("No active health client, will retry on next maintenance cycle.");
+            return HealthResponse.NOT_FOUND;
         }
     }
 

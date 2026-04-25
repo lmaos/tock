@@ -3,6 +3,8 @@ package com.clmcat.tock.worker;
 import com.clmcat.tock.Lifecycle;
 import com.clmcat.tock.ResumableLifecycle;
 import com.clmcat.tock.TockContext;
+import com.clmcat.tock.health.HeartbeatReportListener;
+import com.clmcat.tock.health.HeartbeatReporter;
 import com.clmcat.tock.job.JobContext;
 import com.clmcat.tock.job.JobExecutor;
 import com.clmcat.tock.job.JobRegistry;
@@ -49,6 +51,7 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
     private final Map<String, Map<String, Future<?>>> executeJobFutures = new ConcurrentHashMap<>();
     private final Map<String, Map<String, JobExecution>> pendingExecutions = new ConcurrentHashMap<>();
     private NodeListener nodeListener;
+    private HeartbeatReportListener heartbeatReportListener;
 
     public static DefaultTockWorker create() {
         return new DefaultTockWorker();
@@ -70,10 +73,34 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
                 resume();
             }
         });
+        HeartbeatReporter heartbeatReporter = context.getHeartbeatReporter();
+        if (heartbeatReporter != null) {
+            heartbeatReportListener = new HeartbeatReportListener() {
+                @Override
+                public void onHeartbeatReportFailed(int consecutiveFailures) {
+                    if (isRunning()) {
+                        pause(false);
+                    }
+                }
+
+                @Override
+                public void onHeartbeatReportRecovered() {
+                    if (isStarted() && !isRunning()) {
+                        resume();
+                    }
+                }
+            };
+            heartbeatReporter.addHeartbeatReportListener(heartbeatReportListener);
+        }
         log.info("DefaultTockWorker started");
     }
     @Override
     protected void onResume() {
+        HeartbeatReporter heartbeatReporter = context.getHeartbeatReporter();
+        if (heartbeatReporter != null && !heartbeatReporter.isHeartbeatHealthy()) {
+            pause(false);
+            return;
+        }
         // 恢复之前已加入的组（例如 stop 后重新 start）
         for (String group : groups) {
             startConsume(group);
@@ -102,6 +129,11 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
     @Override
     public synchronized void onStop() {
         log.info("DefaultTockWorker stopped - 0");
+        HeartbeatReporter heartbeatReporter = context.getHeartbeatReporter();
+        if (heartbeatReporter != null && heartbeatReportListener != null) {
+            heartbeatReporter.removeHeartbeatReportListener(heartbeatReportListener);
+            heartbeatReportListener = null;
+        }
         register.getCurrentNode().removeNodeListener(nodeListener);
         log.info("DefaultTockWorker stopped - 1");
     }

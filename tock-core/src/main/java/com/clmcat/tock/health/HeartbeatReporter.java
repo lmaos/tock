@@ -26,6 +26,12 @@ public interface HeartbeatReporter extends Lifecycle {
      */
     long serverTime();
 
+    boolean isHeartbeatHealthy();
+
+    void addHeartbeatReportListener(HeartbeatReportListener listener);
+
+    void removeHeartbeatReportListener(HeartbeatReportListener listener);
+
     void addMasterChangeListener(MasterChangeListener listener);
 
     void removeMasterChangeListener(MasterChangeListener listener);

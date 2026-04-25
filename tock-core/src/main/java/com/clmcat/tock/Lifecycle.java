@@ -33,6 +33,10 @@ public interface Lifecycle {
     @Slf4j
     abstract class AbstractNoImplLifecycle {
         final AtomicBoolean started = new AtomicBoolean(false);
+        /**
+         * 统一串行化生命周期切换，避免 start/stop 和 pause/resume 交错执行。
+         */
+        protected final Object lifecycleLock = new Object();
         protected TockContext context;
 
 
@@ -43,24 +47,28 @@ public interface Lifecycle {
 
 
         public void start(TockContext context) {
-            this.context = context;
-            if (started.compareAndSet(false, true)) {
-                try {
-                    onStart();
-                } catch (Exception e) {
-                    onError(e, 0);
-                    started.set(false);
+            synchronized (lifecycleLock) {
+                this.context = context;
+                if (started.compareAndSet(false, true)) {
+                    try {
+                        onStart();
+                    } catch (Exception e) {
+                        onError(e, 0);
+                        started.set(false);
+                    }
                 }
             }
         }
 
 
         public void stop() {
-            if (started.compareAndSet(true, false)) {
-                try {
-                    onStop();
-                } catch (Exception e) {
-                    onError(e, 1);
+            synchronized (lifecycleLock) {
+                if (started.compareAndSet(true, false)) {
+                    try {
+                        onStop();
+                    } catch (Exception e) {
+                        onError(e, 1);
+                    }
                 }
             }
         }

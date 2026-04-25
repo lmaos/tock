@@ -47,15 +47,17 @@ public interface ResumableLifecycle extends Lifecycle {
          * 如果已经在工作状态，则忽略。
          */
         public final void resume() {
-            if (!isStarted()) {
-                return;
-            }
-            if (running.compareAndSet(false, true)) {
-                try {
-                    onResume();
-                } catch (Exception e) {
-                    onError(e, 2); // 可用不同的错误码区分 resume 中的异常
-                    running.set(false);
+            synchronized (lifecycleLock) {
+                if (!isStarted()) {
+                    return;
+                }
+                if (running.compareAndSet(false, true)) {
+                    try {
+                        onResume();
+                    } catch (Exception e) {
+                        onError(e, 2); // 可用不同的错误码区分 resume 中的异常
+                        running.set(false);
+                    }
                 }
             }
         }
@@ -66,12 +68,14 @@ public interface ResumableLifecycle extends Lifecycle {
          * @param force 是否强制中断正在执行的任务（通常传递给 Future.cancel）
          */
         public final void pause(boolean force) {
-            if (running.compareAndSet(true, false)) {
-                try {
-                    onPause(force);
-                } catch (Exception e) {
-                    onError(e, 3);
-                    // 即使 onPause 失败，running 依然为 false，保持暂停语义
+            synchronized (lifecycleLock) {
+                if (running.compareAndSet(true, false)) {
+                    try {
+                        onPause(force);
+                    } catch (Exception e) {
+                        onError(e, 3);
+                        // 即使 onPause 失败，running 依然为 false，保持暂停语义
+                    }
                 }
             }
         }
@@ -92,12 +96,14 @@ public interface ResumableLifecycle extends Lifecycle {
 
         @Override
         public void stop() {
-            if (started.compareAndSet(true, false)) {
-                try {
-                    pause(true); // 停止前先强制暂停，确保所有任务都已中断
-                    onStop();
-                } catch (Exception e) {
-                    onError(e, 1);
+            synchronized (lifecycleLock) {
+                if (started.compareAndSet(true, false)) {
+                    try {
+                        pause(true); // 停止前先强制暂停，确保所有任务都已中断
+                        onStop();
+                    } catch (Exception e) {
+                        onError(e, 1);
+                    }
                 }
             }
         }

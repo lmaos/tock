@@ -24,7 +24,7 @@ public class MemorySubscribableWorkerQueue implements SubscribableWorkerQueue , 
 
     private TockContext context;
 
-    public static @NonNull WorkerQueue create() {
+    public static @NonNull MemorySubscribableWorkerQueue create() {
         return new MemorySubscribableWorkerQueue();
     }
 
