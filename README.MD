@@ -1,1 +1,78 @@
-说明 -> ：[README.md](tock-core/README.md)
+# Tock
+
+Tock 是一个面向 JVM 的分布式定时器内核。它的核心思路很简单：**Master 负责调度，Worker 负责执行**，调度结果会提前入队，最后一跳交给 Worker 本机定时器完成。
+
+这样做的好处是：
+
+- 调度和执行解耦
+- 网络抖动只影响“任务到达 Worker 的时刻”，不直接放大成业务执行误差
+- 默认行为足够轻，复杂场景又能通过配置扩展
+
+## 运行方式
+
+| 模式 | 适用场景 | 关键组件 |
+| --- | --- | --- |
+| Memory | 本地开发、单进程验证、单元测试 | `MemoryTockRegister` + `MemoryScheduleStore` + `MemoryPullableWorkerQueue` |
+| Redis | 多节点部署、共享状态、真实集群 | `RedisTockRegister` + `RedisScheduleStore` + `RedisSubscribableWorkerQueue` |
+
+## 核心链路
+
+```text
+Config -> Tock -> Register / ScheduleStore / WorkerQueue / TaskScheduler
+       -> TockScheduler -> JobExecution -> WorkerQueue -> TockWorker -> JobExecutor
+```
+
+补充两条支撑链路：
+
+- `time` 负责统一调度和 Worker 的时间基准
+- `health` 只负责健康、心跳、过期通知
+- `serialize` 负责 Redis 组件之间的对象传输
+- `utils` 负责生命周期排序、引用保护、网络探测
+
+## 设计风格
+
+1. **职责分离**：`Tock` 只做门面和生命周期编排，不直接承载调度逻辑
+2. **通过 context 传递依赖**：模块之间不互相 new，统一从 `TockContext` 拿自己需要的东西
+3. **时间统一**：默认直接用服务器时间；如果配置时间同步规则，再由 `time` 模块统一时间基准
+4. **健康只管健康**：健康链路不碰业务执行，只负责发现、心跳和过期通知
+5. **Memory / Redis 同语义**：换存储，不换接口语义
+6. **调度提前，Worker 本地执行**：Master 提前把任务送进队列，Worker 到点后在本机执行，兼顾精度和效率
+
+## 我们重点解决什么
+
+- **分布式一致调度**：只有一个 Master 负责出计划
+- **执行精度**：Worker 本机定时器负责最后一跳，减少跨节点通信对精度的影响
+- **容错**：提前入队给网络延迟和抖动留出余量
+- **可替换性**：注册中心、调度器、队列、执行器、时间源、序列化器都可以替换
+
+## 性能和验证
+
+当前仓库不是只“能跑”，也做了比较完整的 benchmark 和 study。
+
+低调但实话实说地讲，结果是不错的：
+
+- **内存 Worker 严格 A/B**：`high-precision` 的 `worker-chain avg abs skew` 约 **0.360ms**，明显优于默认调度器的 **2.950ms**
+- **Windows 本机 Redis 稳态精度**：高精度 Worker 稳定在 **3ms 级**
+- **Windows 本机吞吐**：内存模式约 **1 万 tasks/s**，Redis 模式约 **5.4k ~ 5.9k tasks/s**
+
+这些数据说明：
+
+- 高精度执行器在本机链路里确实有价值
+- Redis 模式的主要成本更偏向消息通道和序列化，而不是 Worker 本地执行器本身
+- 当前实现已经能把精度、吞吐和可维护性放在一个比较平衡的位置
+
+## 文档入口
+
+- [核心模块设计](tock-core/docs/design/index.md)
+- [架构说明](tock-core/docs/architecture.md)
+- [扩展性说明](tock-core/docs/extensibility.md)
+- [配置指南](tock-core/docs/configuration.md)
+- [运维手册](tock-core/docs/operations.md)
+- [性能报告](tock-core/PERFORMANCE.md)
+
+## 源码入口
+
+- 核心模块：`tock-core`
+- 示例/演示：`tock-demo`
+
+如果你想直接看“模块怎么拆、谁依赖谁、为什么这么设计”，先读 `tock-core/docs/design/index.md`。

@@ -3,6 +3,7 @@
 本文描述的是当前 `tock-core` 的实际运行路径，而不是早期设计草稿。
 
 如果你更关心“哪些层可以替换、每个接口负责什么”，可配合阅读 [extensibility.md](extensibility.md)。
+如果你更关心“每个源码目录内部怎么设计”，可直接看 [design/index.md](design/index.md)。
 
 ## 总体结构
 
