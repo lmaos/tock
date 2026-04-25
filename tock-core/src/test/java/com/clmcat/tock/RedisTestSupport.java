@@ -17,6 +17,9 @@ import org.junit.jupiter.api.TestInfo;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -42,8 +45,8 @@ public abstract class RedisTestSupport {
 
     @BeforeEach
     void setUp(TestInfo testInfo) {
-        this.jedisPool = new JedisPool("127.0.0.1", 6379);
         Assumptions.assumeTrue(isRedisAvailable(), "Redis 127.0.0.1:6379 is not available");
+        this.jedisPool = new JedisPool("127.0.0.1", 6379);
         this.namespace = "ut:" + getClass().getSimpleName() + ":" + sanitize(testInfo.getDisplayName()) + ":" + UUID.randomUUID().toString().replace("-", "");
         this.consumerExecutor = Executors.newCachedThreadPool(namedDaemonFactory("tock-test-consumer"));
         this.workerExecutor = new ScheduledExecutorTaskScheduler(1, "tock-test-worker");
@@ -105,10 +108,30 @@ public abstract class RedisTestSupport {
         }
     }
 
-    private boolean isRedisAvailable() {
-        try (Jedis jedis = jedisPool.getResource()) {
-            return "PONG".equalsIgnoreCase(jedis.ping());
+    public static boolean isRedisAvailable() {
+        if (!isRedisPortOpen()) {
+            return false;
+        }
+        JedisPool pool = null;
+        try {
+            pool = new JedisPool("127.0.0.1", 6379);
+            try (Jedis jedis = pool.getResource()) {
+                return "PONG".equalsIgnoreCase(jedis.ping());
+            }
         } catch (Exception e) {
+            return false;
+        } finally {
+            if (pool != null) {
+                pool.close();
+            }
+        }
+    }
+
+    private static boolean isRedisPortOpen() {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress("127.0.0.1", 6379), 200);
+            return true;
+        } catch (IOException e) {
             return false;
         }
     }

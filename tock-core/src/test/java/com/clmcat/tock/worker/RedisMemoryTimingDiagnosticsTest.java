@@ -4,6 +4,7 @@ import com.clmcat.tock.Config;
 import com.clmcat.tock.Tock;
 import com.clmcat.tock.TockContext;
 import com.clmcat.tock.TockContextAware;
+import com.clmcat.tock.RedisTestSupport;
 import com.clmcat.tock.money.MemoryManager;
 import com.clmcat.tock.registry.TockRegister;
 import com.clmcat.tock.registry.memory.MemoryTockRegister;
@@ -42,6 +43,7 @@ class RedisMemoryTimingDiagnosticsTest {
 
     @Test
     void shouldKeepRedisHighPrecisionCloseToMemoryPrecision() {
+        Assumptions.assumeTrue(RedisTestSupport.isRedisAvailable(), "Redis 127.0.0.1:6379 is not available");
         ScenarioSummary memory = runMemoryScenario("memory-high-precision", TaskSchedulers.highPrecision("diag-memory-worker"));
 
         try (JedisPool jedisPool = new JedisPool("127.0.0.1", 6379)) {
@@ -67,6 +69,7 @@ class RedisMemoryTimingDiagnosticsTest {
 
     @Test
     void shouldKeepRedisDefaultWorkerWithinTightBound() {
+        Assumptions.assumeTrue(RedisTestSupport.isRedisAvailable(), "Redis 127.0.0.1:6379 is not available");
         try (JedisPool jedisPool = new JedisPool("127.0.0.1", 6379)) {
             assumeRedisAvailable(jedisPool);
             assumeRedisClockCloseToJvmClock(jedisPool);
