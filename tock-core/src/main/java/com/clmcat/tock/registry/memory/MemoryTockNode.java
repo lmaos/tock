@@ -5,6 +5,7 @@ import com.clmcat.tock.registry.NodeListener;
 import com.clmcat.tock.registry.TockCurrentNode;
 import com.clmcat.tock.money.MemoryManager;
 import com.clmcat.tock.registry.listener.NodeListeners;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
@@ -25,6 +26,7 @@ public class MemoryTockNode implements TockCurrentNode {
     private final NodeListeners nodeListeners = new NodeListeners(this);
 
     // 续租的时间。
+    @Getter
     private long leaseTime;
     private final long leaseTimeoutMs;     // 租约超时时间，默认3000
     private final long heartbeatIntervalMs; // 续期间隔，默认1000

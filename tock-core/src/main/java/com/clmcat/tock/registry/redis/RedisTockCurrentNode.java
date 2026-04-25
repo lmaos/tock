@@ -30,7 +30,7 @@ public class RedisTockCurrentNode extends RedisTockNode implements TockCurrentNo
     private volatile TockContext tockContext;
 
     public RedisTockCurrentNode(String namespace, JedisPool jedisPool, String name) {
-        this(namespace, jedisPool, null, name, UUID.randomUUID().toString(), 3000L, 1000L);
+        this(namespace, jedisPool, null, name, UUID.randomUUID().toString(), 5000, 1000L);
     }
 
     public RedisTockCurrentNode(String namespace, JedisPool jedisPool, Serializer serializer, String name, String nodeId, long leaseTimeoutMs, long heartbeatIntervalMs) {

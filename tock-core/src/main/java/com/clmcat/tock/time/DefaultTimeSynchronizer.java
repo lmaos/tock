@@ -188,6 +188,12 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
                 long localStartNs = nanoTimeSupplier.getAsLong();
                 long remoteTimeMs = timeProvider.currentTimeMillis();
                 long localEndNs = nanoTimeSupplier.getAsLong();
+
+                if (remoteTimeMs == -1) {
+                    log.debug("TimeProvider returned -1, skipping this sample");
+                    continue; // 跳过本次采样，不增加 successCount
+                }
+
                 long rttNs = localEndNs - localStartNs; // 本地请求的 RTT 纳秒时间
                 long midpointLocalNs = localStartNs + (rttNs / 2L); // 当前纳秒
                 long midpointLocalMs = monotonicTimeMillisAt(midpointLocalNs); // 当前毫秒 monotonicBaseWallClockMs + TimeUnit.NANOSECONDS.toMillis(nanoTime - monotonicBaseNanoTime);

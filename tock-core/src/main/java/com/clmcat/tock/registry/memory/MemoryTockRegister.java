@@ -1,5 +1,6 @@
 package com.clmcat.tock.registry.memory;
 
+import com.clmcat.tock.Lifecycle;
 import com.clmcat.tock.TockContext;
 import com.clmcat.tock.registry.TockNode;
 import com.clmcat.tock.registry.TockRegister;
@@ -13,14 +14,12 @@ import java.util.Map;
 import java.util.Set;
 
 @Getter
-public class MemoryTockRegister implements TockRegister {
+public class MemoryTockRegister extends Lifecycle.AbstractLifecycle implements TockRegister {
 
     private MemoryTockMaster master;
     private MemoryTockNode currentNode;
     private MemoryManager memoryManager;
-    private TockContext tockContext;
 
-    private boolean started = false;
     private String namespace;
 
     public MemoryTockRegister(String namespace, MemoryManager memoryManager) {
@@ -36,23 +35,15 @@ public class MemoryTockRegister implements TockRegister {
 
 
     @Override
-    public void start(TockContext context) {
-        started = true;
-        this.tockContext = context;
+    public void onStart() {
         master.start(context);
         currentNode.start(context);
     }
 
     @Override
-    public void stop() {
-        started = false;
+    public void onStop() {
         master.stop();
         currentNode.stop();
-    }
-
-    @Override
-    public boolean isStarted() {
-        return started;
     }
 
 
@@ -187,6 +178,11 @@ public class MemoryTockRegister implements TockRegister {
         @Override
         public void clearAttributes() {
             delegate.clearAttributes();
+        }
+
+        @Override
+        public long getLeaseTime() {
+            return delegate.getLeaseTime();
         }
     }
 }

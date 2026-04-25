@@ -42,5 +42,9 @@ public interface TockNode {
 
     void clearAttributes();
 
-
+    /**
+     * 所有节点的续租时间。 当前时间由 node 本地提交的。 node自动维护的时间。
+     * @return 时间戳 毫秒时间戳
+     */
+    long getLeaseTime();
 }

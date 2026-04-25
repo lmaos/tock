@@ -1,9 +1,11 @@
 package com.clmcat.tock;
 
+import com.clmcat.tock.health.HeartbeatReporter;
+import com.clmcat.tock.health.HealthMaintainer;
 import com.clmcat.tock.job.JobRegistry;
-import com.clmcat.tock.registry.TockMaster;
 import com.clmcat.tock.registry.TockRegister;
 import com.clmcat.tock.schedule.ScheduleStore;
+import com.clmcat.tock.time.TimeSynchronizer;
 import com.clmcat.tock.worker.scheduler.TaskScheduler;
 import com.clmcat.tock.scheduler.TockScheduler;
 import com.clmcat.tock.serialize.Serializer;
@@ -17,22 +19,34 @@ import lombok.Getter;
 import lombok.NonNull;
 
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ScheduledExecutorService;
 
 @Getter
 @Builder
 public class TockContext {
+    private String namespace;
     private Config config;
+    /**
+     * 序列化工具，可以不配置, 默认序列工具根据用户依赖的第三方库自动选择，优先级为：Jackson > Fastjson > Kryo > JavaSerializer。
+     */
+    private Serializer serializer;
+
     private TockRegister register;
+
+
+    private HealthMaintainer healthMaintainer;
+
+    private HeartbeatReporter heartbeatReporter;
+
+    private TimeProvider timeProvider;
+
+    private TimeSource timeSource;
+
+    private TimeSynchronizer timeSynchronizer;
     /**
      * 注册中心，存储jobId → JobExecutor的映射。
      */
     private JobRegistry jobRegistry;
 
-
-    private TockScheduler scheduler;
-
-    private TockWorker worker;
 
     /**
      * 存放所有`ScheduleConfig`的实现，主要是定时任务的配置， 比如：cron/延迟时间等，调度器会从这里加载配置。
@@ -44,25 +58,26 @@ public class TockContext {
      * 使用时，调度器会定期检查到期任务并推送给 WorkerQueue 执行， Worker响应执行队列的执行操作。
      */
     private JobStore jobStore;
+
+    private final TaskScheduler workerExecutor;              // Worker 执行任务的线程池
+
+    private final ExecutorService consumerExecutor;            // Worker 消费队列的线程池（每个组的拉取线程）
+
+
     /**
      * 工作队列
      */
     @NonNull
     private WorkerQueue workerQueue;
-    /**
-     * 序列化工具，可以不配置, 默认序列工具根据用户依赖的第三方库自动选择，优先级为：Jackson > Fastjson > Kryo > JavaSerializer。
-     */
-    private Serializer serializer;
 
 
 
 
-    private final ScheduledExecutorService schedulerExecutor;  // 调度器专用线程池（Master）
-    private final TaskScheduler workerExecutor;              // Worker 执行任务的线程池
-    private final ExecutorService consumerExecutor;            // Worker 消费队列的线程池（每个组的拉取线程）
+    private TockWorker worker;
 
-    private TimeProvider timeProvider;
-    private TimeSource timeSource;
+    private TockScheduler scheduler;
+
+
 
     /**
      * 返回当前时间戳（毫秒）。

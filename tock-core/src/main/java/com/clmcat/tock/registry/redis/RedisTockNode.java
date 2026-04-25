@@ -30,14 +30,14 @@ public class RedisTockNode extends RedisSupport implements TockNode {
     protected final LongSupplier timeSupplier;
 
     public RedisTockNode(String namespace, JedisPool jedisPool, String name) {
-        this(namespace, jedisPool, null, name, UUID.randomUUID().toString(), 3000L, 1000L, System::currentTimeMillis);
+        this(namespace, jedisPool, null, name, UUID.randomUUID().toString(), 5000L, 1000L, System::currentTimeMillis);
     }
 
     public RedisTockNode(String namespace, JedisPool jedisPool, Serializer serializer, String name, String nodeId, long leaseTimeoutMs, long heartbeatIntervalMs, LongSupplier timeSupplier) {
         super(namespace, jedisPool, serializer);
         this.name = name;
         this.nodeId = nodeId;
-        this.leaseTimeoutMs = leaseTimeoutMs <= 0 ? 3000L : leaseTimeoutMs;
+        this.leaseTimeoutMs = leaseTimeoutMs <= 0 ? 5000L : leaseTimeoutMs;
         this.heartbeatIntervalMs = heartbeatIntervalMs <= 0 ? 1000L : heartbeatIntervalMs;
         this.timeSupplier = timeSupplier == null ? System::currentTimeMillis : timeSupplier;
     }
@@ -119,6 +119,14 @@ public class RedisTockNode extends RedisSupport implements TockNode {
         withJedis(jedis -> {
             jedis.del(attrsKey());
             return null;
+        });
+    }
+
+    @Override
+    public long getLeaseTime() {
+        return withJedis(jedis -> {
+            Double value = jedis.zscore(nodeIndexKey(), nodeId);
+            return value == null ? -1 : value.longValue();
         });
     }
 

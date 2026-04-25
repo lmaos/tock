@@ -76,13 +76,11 @@ public abstract class RedisTestSupport {
         }
         return TockContext.builder()
                 .register(register)
-                .master(register.getMaster())
                 .scheduleStore(scheduleStore)
                 .jobStore(jobStore)
                 .workerQueue(workerQueue)
                 .consumerExecutor(consumerExecutor)
                 .workerExecutor(workerExecutor)
-                .schedulerExecutor(schedulerExecutor)
                 .timeSource(timeSource)
                 .build();
     }

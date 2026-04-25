@@ -32,7 +32,6 @@ public class NodeListeners {
                 listener.onRunning();
             } catch (Exception e) {
                 log.error("NodeListener onRunning error", e);
-                throw new RuntimeException(e);
             }
         }
     }

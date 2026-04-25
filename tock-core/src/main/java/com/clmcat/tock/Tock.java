@@ -1,10 +1,13 @@
 package com.clmcat.tock;
 
-import com.clmcat.tock.health.NodeHealthMaintainer;
+import com.clmcat.tock.annotation.TockComponent;
+import com.clmcat.tock.health.DefaultHeartbeatReporter;
+import com.clmcat.tock.health.DefaultHealthMaintainer;
+import com.clmcat.tock.health.HeartbeatReporter;
+import com.clmcat.tock.health.HealthMaintainer;
 import com.clmcat.tock.job.DefaultJobRegistry;
 import com.clmcat.tock.job.JobExecutor;
 import com.clmcat.tock.job.JobRegistry;
-import com.clmcat.tock.registry.TockMaster;
 import com.clmcat.tock.registry.TockRegister;
 import com.clmcat.tock.schedule.ScheduleConfig;
 import com.clmcat.tock.schedule.ScheduleStore;
@@ -81,69 +84,109 @@ public class Tock {
     }
 
 
-
+    /**
+     * true 实例已经启动， false 未启动实例。
+     */
     private volatile AtomicBoolean started = new  AtomicBoolean(false);
 
 
-
+    // 配置
     private Config config;
-    /**
-     * 时间接口。
-     */
-    private TimeSynchronizer timeSynchronizer;
-    /**
-     * 时间提供者
-     */
-    private TimeProvider timeProvider;
 
+//    serializer,       序列化
+//    healthMaintainer, 健康检查
+//    register,         注册中心
+//    timeProvider,     时间提供者
+//    timeSynchronizer, 时间同步
+//    workerExecutor,   worker 执行定时器。
+//    workerQueue,      worker 计划队列
+//    jobRegistry,      工作者，工作内容/技能 注册
+//    jobStore,         工作计划存储 -> 延迟队列，(默认实现为使用当前功能)
+//    scheduleStore,    计划配置存储
+//    worker,           工作者
+//    scheduler         调度者
+
+
+    /**
+     * 序列化工具，可以不配置, 默认序列工具根据用户依赖的第三方库自动选择，优先级为：Jackson > Fastjson > Kryo > JavaSerializer。
+     */
+    @TockComponent
+    private Serializer serializer;
+
+
+
+    @TockComponent
     private TockRegister register;
+
+    /**
+     * 节点监控
+     */
+    @TockComponent
+    private HealthMaintainer healthMaintainer;
+    /**
+     * 节点上报
+     */
+    @TockComponent
+    private HeartbeatReporter heartbeatReporter;
     /**
      * 注册中心，存储jobId → JobExecutor的映射。
      */
+    @TockComponent
     private JobRegistry jobRegistry;
-    /**
-     * 主调度器，用于读取配置创建执行任务。
-     */
-    private TockScheduler scheduler;
-    /**
-     * 监听任务触发，任务触发时候执行任务。
-     */
-    private TockWorker worker;
-    /**
-     * 存放所有`ScheduleConfig`的实现，主要是定时任务的配置， 比如：cron/延迟时间等，调度器会从这里加载配置。
-     */
-    private ScheduleStore scheduleStore;
 
+    /**
+     * 时间提供者
+     */
+    @TockComponent
+    private TimeProvider timeProvider;
+
+    /**
+     * 时间接口。
+     */
+    @TockComponent
+    private TimeSynchronizer timeSynchronizer;
+    /**
+     * Worker 执行任务的线程池
+     */
+    @TockComponent
+    private TaskScheduler workerExecutor;
+    /**
+     * 工作队列
+     */
+    @TockComponent
+    private WorkerQueue workerQueue;
     /**
      * 延时任务存储，按执行时间排序（类似延迟队列）。 由调度计算未来执行点的配置进行存储。
      * 使用时，调度器会定期检查到期任务并推送给 WorkerQueue 执行， Worker响应执行队列的执行操作。
      */
+    @TockComponent
     private JobStore jobStore;
     /**
-     * 工作队列
+     * 存放所有`ScheduleConfig`的实现，主要是定时任务的配置， 比如：cron/延迟时间等，调度器会从这里加载配置。
      */
-    private WorkerQueue workerQueue;
+    @TockComponent
+    private ScheduleStore scheduleStore;
+
     /**
-     * 序列化工具，可以不配置, 默认序列工具根据用户依赖的第三方库自动选择，优先级为：Jackson > Fastjson > Kryo > JavaSerializer。
+     * 监听任务触发，任务触发时候执行任务。
      */
-    private Serializer serializer;
+    @TockComponent
+    private TockWorker worker;
     /**
-     * 调度器专用线程池（Master）
+     * 主调度器，用于读取配置创建执行任务。
      */
-    private ScheduledExecutorService schedulerExecutor;
-    /**
-     * Worker 执行任务的线程池
-     */
-    private TaskScheduler workerExecutor;
+    @TockComponent
+    private TockScheduler scheduler;
+
+
+
+
     /**
      * Worker 消费队列的线程池（每个组的拉取线程）
      */
     private ExecutorService consumerExecutor;
 
-    /**
-     * 节点监控
-     */
-    private NodeHealthMaintainer nodeHealthMaintainer;
+
     /**
      * 管理用户的线程池， true时，当 shutdown 时候会关闭线程池。 false 不会强制关闭，
      */
@@ -195,8 +238,15 @@ public class Tock {
 
         this.workerExecutor = config.getWorkerExecutor();
         this.consumerExecutor = config.getConsumerExecutor();
-        this.schedulerExecutor = config.getSchedulerExecutor();
         this.manageThreadPools = config.isManageThreadPools();
+
+        // 目前只支持默认实现。
+        if (Objects.isNull(healthMaintainer)) {
+            this.healthMaintainer = new DefaultHealthMaintainer();
+        }
+        if (Objects.isNull(heartbeatReporter)) {
+            this.heartbeatReporter = new DefaultHeartbeatReporter();
+        }
 
         if (Objects.isNull(serializer)) {
             /// 序列化方式。 默认序列工具根据用户依赖的第三方库自动选择，优先级为：Jackson > Fastjson > Kryo > JavaSerializer。
@@ -234,20 +284,18 @@ public class Tock {
                 return t;
             });
         }
-        if (Objects.isNull(this.schedulerExecutor)) {
-            this.schedulerExecutor = Executors.newScheduledThreadPool(2, (r)->{
-                Thread t = new Thread(r);
-                t.setDaemon(true);
-                t.setName(namespace + "-scheduler");
-                return t;
-            });
-        }
 
 
 
         this.tockContext = TockContext.builder()
+                .namespace(namespace)
                 .config(config)
                 .register(register)
+                .healthMaintainer(healthMaintainer)
+                .heartbeatReporter(heartbeatReporter)
+                .timeProvider(timeProvider)
+                .timeSource(timeSynchronizer)
+                .timeSynchronizer(timeSynchronizer)
                 .jobRegistry(jobRegistry)
                 .scheduleStore(scheduleStore)
                 .jobStore(jobStore)
@@ -257,18 +305,16 @@ public class Tock {
                 .worker(worker)
                 .scheduler(scheduler)
                 .consumerExecutor(consumerExecutor)
-                .schedulerExecutor(schedulerExecutor)
-                .timeProvider(timeProvider)
-                .timeSource(timeSynchronizer)
                 .build();
 
         // 组件集合。
         this.components = Arrays.asList(
                 serializer,
                 register,
+                healthMaintainer,
+                heartbeatReporter,
                 timeProvider,
                 timeSynchronizer,
-                nodeHealthMaintainer,
                 workerExecutor,
                 workerQueue,
                 jobRegistry,
@@ -289,7 +335,7 @@ public class Tock {
         components.forEach(component -> {
             injectContext(component, tockContext);
         });
-        lifecyclesComponents = new ArrayList<>(LifecycleSupport.loaderLifecycles(components));
+        lifecyclesComponents = new ArrayList<>(LifecycleSupport.loadLifecycles(components));
         // 生命周期初始化。
         lifecyclesComponents.forEach(component -> {
             lifecycleInit(component, tockContext);
@@ -357,8 +403,6 @@ public class Tock {
      */
     public synchronized  void shutdown() {
         // config 被多个 Tock 依赖。
-
-
         if (started.compareAndSet(true, false)) {
             this.components.forEach(component -> {
                 ReferenceSupport.commonRemoveReference(component);
@@ -368,8 +412,8 @@ public class Tock {
             for (int i = this.lifecyclesComponents.size() - 1; i >=0 ; i--) {
                 lifecycleStop(lifecyclesComponents.get(i), tockContext);
             }
-
-            countDownLatch.countDown();
+            this.consumerExecutor.shutdownNow();
+            this.countDownLatch.countDown();
             log.info("Tock ({}) shutdown", register.getNamespace());
         } else {
             log.info("Tock Component already stopped");

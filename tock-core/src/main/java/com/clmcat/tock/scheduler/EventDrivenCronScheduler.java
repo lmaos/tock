@@ -1,10 +1,12 @@
 package com.clmcat.tock.scheduler;
 
 import com.clmcat.tock.Lifecycle;
+import com.clmcat.tock.ResumableLifecycle;
 import com.clmcat.tock.TockContext;
 import com.clmcat.tock.TockContextAware;
 import com.clmcat.tock.cron.CronCalculators;
 import com.clmcat.tock.cron.CronCalculator;
+import com.clmcat.tock.health.NodeHealthListener;
 import com.clmcat.tock.registry.MasterListener;
 import com.clmcat.tock.registry.TockNode;
 import com.clmcat.tock.registry.TockRegister;
@@ -18,15 +20,12 @@ import com.clmcat.tock.worker.WorkerQueue;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
-public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockContextAware {
+public class EventDrivenCronScheduler extends ResumableLifecycle.AbstractResumableLifecycle implements TockScheduler, Lifecycle {
 
     private static final long DEFAULT_CONFIG_REFRESH_INTERVAL_MS = 10000;
     private static final long CLEANER_INTERVAL_MS = 1000; // 1秒
@@ -36,8 +35,8 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
     private ScheduleStore scheduleStore;
     private WorkerQueue workerQueue;
     private TockRegister register;
-    private AtomicBoolean started = new AtomicBoolean(false);
-    private AtomicBoolean running = new AtomicBoolean(false);
+
+
     private final AtomicLong lastConfigVersion = new AtomicLong(-1);
     private volatile Map<String, ScheduleConfig> cachedConfigMap = new ConcurrentHashMap<>();
 
@@ -47,17 +46,18 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
 
     private ScheduledFuture<?> startWorkerNodeCleanerFuture;
     private ScheduledFuture<?> startConfigRefreshFuture;
-    private TockContext context;
 
+
+    private ScheduledExecutorService schedulerExecutor;
     private MasterListener masterListener;
-
+    private NodeHealthListener nodeHealthListener;
 
     public static EventDrivenCronScheduler create() {
         return new EventDrivenCronScheduler();
     }
 
     @Override
-    public void setTockContext(TockContext context) {
+    public void onInit() {
         this.scheduleStore = context.getScheduleStore();
         this.workerQueue = context.getWorkerQueue();
         this.register = context.getRegister();
@@ -65,9 +65,13 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
     }
 
     @Override
-    public void start(TockContext context) {
-        if (!started.compareAndSet(false, true)) return;
+    public void onStart() {
 
+        schedulerExecutor = Executors.newScheduledThreadPool(2, r -> {
+            Thread t = new Thread(r, register.getNamespace()+ "-scheduler");
+            t.setDaemon(true);
+            return t;
+        });
         register.getMaster().addListener(masterListener = new MasterListener() {
             @Override
             public void onBecomeMaster() {
@@ -76,7 +80,7 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
 
             @Override
             public void onLoseMaster() {
-                pause();
+                pause(false);
             }
         });
 
@@ -84,58 +88,48 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
     }
 
 
-    protected void resume() {
-        if (!this.isStarted()) return;
+    protected void onResume() {
 
-        if (running.compareAndSet(false, true)) {
-            // 默认先进行执行。
-            startWorkerNodeCleaner();
-            // 直接刷新一次配置， 避免等待定时器第一次触发。
-            refreshSchedulesIfNeeded();
-            if (startConfigRefreshFuture == null) {
-                // 配置刷新（低频）
-                startConfigRefreshFuture = context.getSchedulerExecutor()
-                        .scheduleWithFixedDelay(this::refreshSchedulesIfNeeded,
-                                0,
-                                DEFAULT_CONFIG_REFRESH_INTERVAL_MS,
-                                TimeUnit.MILLISECONDS);
-            }
-            if (startWorkerNodeCleanerFuture == null) {
-                startWorkerNodeCleanerFuture = context.getSchedulerExecutor()
-                        .scheduleWithFixedDelay(this::startWorkerNodeCleaner,
-                                0,
-                                CLEANER_INTERVAL_MS,
-                                TimeUnit.MILLISECONDS);
-            }
-            log.info("CronScheduler resume");
-        } else {
-            log.info("CronScheduler already resumed");
+        // 默认先进行执行。
+        // startWorkerNodeCleaner();
+        // 直接刷新一次配置， 避免等待定时器第一次触发。
+        refreshSchedulesIfNeeded();
+        if (startConfigRefreshFuture == null) {
+            // 配置刷新（低频）
+            startConfigRefreshFuture = schedulerExecutor
+                    .scheduleWithFixedDelay(this::refreshSchedulesIfNeeded,
+                            0,
+                            DEFAULT_CONFIG_REFRESH_INTERVAL_MS,
+                            TimeUnit.MILLISECONDS);
         }
 
+        context.getHealthMaintainer().addListener(nodeHealthListener = new NodeHealthListener() {
+            @Override
+            public void onNodeExpired(TockNode node) {
+                expiredNodeHandler(node);
+            }
+        });
+
+        log.info("CronScheduler resume");
 
 
     }
-    protected void pause() {
-        if (running.compareAndSet(true, false)) {
-            if (startConfigRefreshFuture != null) {
-                startConfigRefreshFuture.cancel(true);
-                startConfigRefreshFuture = null;
+    protected void onPause(boolean force) {
 
-            }
-            if (startWorkerNodeCleanerFuture != null) {
-                startWorkerNodeCleanerFuture.cancel(true);
-                startWorkerNodeCleanerFuture = null;
-            }
-            for (ScheduledFuture<?> future : scheduledFutures.values()) {
-                future.cancel(false);
-            }
-            scheduledFutures.clear();
-            lastFireTimeLocalCache.clear();
-            lastConfigVersion.set(-1);
-            log.info("CronScheduler paused");
-        } else {
-            log.info("CronScheduler already paused");
+        context.getHealthMaintainer().removeListener(nodeHealthListener);
+        if (startConfigRefreshFuture != null) {
+            startConfigRefreshFuture.cancel(true);
+            startConfigRefreshFuture = null;
+
         }
+        for (ScheduledFuture<?> future : scheduledFutures.values()) {
+            future.cancel(false);
+        }
+        scheduledFutures.clear();
+        lastFireTimeLocalCache.clear();
+        lastConfigVersion.set(-1);
+        log.info("CronScheduler paused");
+
     }
 
     void push(JobExecution execution) {
@@ -143,21 +137,7 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
         workerQueue.push(execution, workerGroup);
     }
 
-    private void startWorkerNodeCleaner() {
-        try {
-            ///  获得过期节点
-            List<TockNode> expiredNodes = register.getExpiredNodes();
-            for (TockNode node : expiredNodes) {
-                if (node.getStatus() != TockNode.NodeStatus.ACTIVE) {
-                    recoverExpiredNode(node);
-                }
-            }
-        } catch (Exception e) {
-            log.error("Scheduler loop error", e);
-        }
-    }
-
-    void recoverExpiredNode(TockNode node) {
+    void expiredNodeHandler(TockNode node) {
         log.info("Removing expired node: {}", node.getId());
         Set<String> recoveredExecutionIds = new HashSet<>();
         for (String attributeName : node.getAttributeNamesAll()) {
@@ -169,7 +149,6 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
                 recoverPendingExecution(node, attributeName, recoveredExecutionIds);
             }
         }
-        register.removeNode(node.getId());
     }
 
     private boolean isScheduleParamChanged(ScheduleConfig old, ScheduleConfig newCfg) {
@@ -236,7 +215,7 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
             delay = delay < ADVANCE_THRESHOLD_MS ? Math.max(0, delay - ADVANCE_SHORT_MS) : delay - ADVANCE_LONG_MS; // 提前x秒， 避免时间误差导致错过。
             log.debug("scheduleConfig({}) to fireTime at {} (delay {} ms / {}ms); syncTime={} [调度器通过配置进行初始化调度任务， 创建事件驱动的定时器执行调度]",
                     scheduleId, nextFireTime, delay, (nextFireTime - currentTime), currentTime);
-            ScheduledFuture<?> schedule = context.getSchedulerExecutor().schedule(() -> onFire(config, nextFireTime), delay, TimeUnit.MILLISECONDS);
+            ScheduledFuture<?> schedule = schedulerExecutor.schedule(() -> onFire(config, nextFireTime), delay, TimeUnit.MILLISECONDS);
             scheduledFutures.put(scheduleId, schedule);
         }
 
@@ -362,18 +341,15 @@ public class EventDrivenCronScheduler implements TockScheduler, Lifecycle, TockC
     }
 
     @Override
-    public void stop() {
-        if (started.compareAndSet(true, false)) {
-            register.getMaster().removeListener(masterListener);
-            pause();
-            log.info("CronScheduler stopped");
-        }
+    public void onStop() {
+
+        register.getMaster().removeListener(masterListener);
+        schedulerExecutor.shutdownNow();
+        log.info("CronScheduler stopped");
+
     }
 
-    @Override
-    public boolean isStarted() {
-        return started.get();
-    }
+
 
     @Override
     public void refreshSchedules() {

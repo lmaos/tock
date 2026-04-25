@@ -57,7 +57,7 @@ public class MemoryTockRegisterTest {
                     @Override public void stop() { }
                     @Override public boolean isStarted() { return true; }
                 })
-                .master(register.getMaster())
+
                 .scheduleStore(MemoryScheduleStore.create())
                 .jobStore(MemoryJobStore.create())
                 .workerQueue(MemoryPullableWorkerQueue.create())

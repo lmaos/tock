@@ -47,7 +47,7 @@ public class RedisTockMaster extends RedisSupport implements TockMaster {
     public RedisTockMaster(String namespace, JedisPool jedisPool, Serializer serializer, String masterName, long leaseTimeoutMs, long heartbeatIntervalMs) {
         super(namespace, jedisPool, serializer);
         this.masterName = masterName;
-        this.leaseTimeoutMs = leaseTimeoutMs <= 0 ? 3000L : leaseTimeoutMs;
+        this.leaseTimeoutMs = leaseTimeoutMs <= 0 ? 5000L : leaseTimeoutMs;
         this.heartbeatIntervalMs = heartbeatIntervalMs <= 0 ? 1000L : heartbeatIntervalMs;
     }
 

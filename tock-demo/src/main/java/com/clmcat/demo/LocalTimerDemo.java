@@ -6,6 +6,7 @@ import com.clmcat.tock.builders.MemoryConfigBuilder;
 import com.clmcat.tock.money.MemoryManager;
 import com.clmcat.tock.registry.memory.MemoryTockRegister;
 import com.clmcat.tock.schedule.ScheduleConfig;
+import com.clmcat.tock.time.HealthTimeProvider;
 
 public class LocalTimerDemo {
 
@@ -14,6 +15,8 @@ public class LocalTimerDemo {
         MemoryTockRegister register = new MemoryTockRegister("test-x", MemoryManager.create());
         Config config = MemoryConfigBuilder.builder("test-x")
                 .withHighPrecisionWorker(true)
+                .toConfigBuilder()
+                .timeProvider(HealthTimeProvider.create())
                 .build();
 
 

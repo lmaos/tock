@@ -1,5 +1,7 @@
 package com.clmcat.tock.worker;
 
+import com.clmcat.tock.Lifecycle;
+import com.clmcat.tock.ResumableLifecycle;
 import com.clmcat.tock.TockContext;
 import com.clmcat.tock.job.JobContext;
 import com.clmcat.tock.job.JobExecutor;
@@ -20,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
-public class DefaultTockWorker implements TockWorker {
+public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifecycle implements TockWorker {
     /**
      * 拉取模式（PullableWorkerQueue）下，每次 poll 操作的超时时间（毫秒）。
      * 超时后返回 null，进入空闲判断逻辑。
@@ -36,9 +38,8 @@ public class DefaultTockWorker implements TockWorker {
     private static final long IDLE_SLEEP_MS = 100;
 
 
-    private TockContext context;
-    private AtomicBoolean started = new AtomicBoolean(false);
-    private AtomicBoolean running = new AtomicBoolean(false);
+
+
     private WorkerQueue workerQueue;
     private JobRegistry jobRegistry;
     private TockRegister register;
@@ -62,67 +63,49 @@ public class DefaultTockWorker implements TockWorker {
     }
 
     @Override
-    public synchronized void start(TockContext context) {
-        if (started.compareAndSet(false, true)) {
-            register.getCurrentNode().addNodeListener(nodeListener = new NodeListener() {
-                @Override
-                public void onRunning() {
-                    resume();
-                }
-            });
-            log.info("DefaultTockWorker started");
-        } else {
-            log.warn("DefaultTockWorker already started");
+    public synchronized void onStart() {
+        register.getCurrentNode().addNodeListener(nodeListener = new NodeListener() {
+            @Override
+            public void onRunning() {
+                resume();
+            }
+        });
+        log.info("DefaultTockWorker started");
+    }
+    @Override
+    protected void onResume() {
+        // 恢复之前已加入的组（例如 stop 后重新 start）
+        for (String group : groups) {
+            startConsume(group);
         }
     }
 
-    protected void resume() {
-        if (!isStarted()) {
-            return;
-        }
-        if (running.compareAndSet(false, true)) {
-            // 恢复之前已加入的组（例如 stop 后重新 start）
+    @Override
+    protected void onPause(boolean force) {
+
+        if (workerQueue != null && workerQueue instanceof SubscribableWorkerQueue) {
             for (String group : groups) {
-                startConsume(group);
+                ((SubscribableWorkerQueue) workerQueue).unsubscribe(group);
             }
         }
-    }
+        pullFutures.values().forEach(f -> f.cancel(force));
+        pullFutures.clear();
+        executeJobFutures.forEach((group, jobFutures) -> {
+            jobFutures.forEach((k, v) -> v.cancel(force));
+        });
+        executeJobFutures.clear();
+        requeueAllPendingExecutions();
 
-    protected void pause(boolean force) {
-        if (running.compareAndSet(true, false)) {
-            if (workerQueue != null && workerQueue instanceof SubscribableWorkerQueue) {
-                for (String group : groups) {
-                    ((SubscribableWorkerQueue) workerQueue).unsubscribe(group);
-                }
-            }
-            pullFutures.values().forEach(f -> f.cancel(force));
-            pullFutures.clear();
-            executeJobFutures.forEach((group, jobFutures) -> {
-                jobFutures.forEach((k, v) -> v.cancel(force));
-            });
-            executeJobFutures.clear();
-            requeueAllPendingExecutions();
-        }
     }
 
 
     @Override
-    public synchronized void stop() {
-        if (started.compareAndSet(true, false)) {
-            log.info("DefaultTockWorker stopped - 0");
-            register.getCurrentNode().removeNodeListener(nodeListener);
-            // 对于订阅模式，取消所有订阅
-            pause(true);
-            log.info("DefaultTockWorker stopped - 1");
-        } else {
-            log.warn("DefaultTockWorker already stopped");
-        }
+    public synchronized void onStop() {
+        log.info("DefaultTockWorker stopped - 0");
+        register.getCurrentNode().removeNodeListener(nodeListener);
+        log.info("DefaultTockWorker stopped - 1");
     }
 
-    @Override
-    public boolean isStarted() {
-        return started.get();
-    }
 
     @Override
     public void joinGroup(String groupName) {
@@ -140,7 +123,7 @@ public class DefaultTockWorker implements TockWorker {
         }
         log.info("DefaultTockWorker joinGroup");
         // 只有Worker真实运行才允许Join组
-        if (isStarted() && running.get()) {
+        if (isStarted() && isRunning()) {
             startConsume(groupName);
         }
     }
