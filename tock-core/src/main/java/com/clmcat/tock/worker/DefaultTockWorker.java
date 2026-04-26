@@ -210,7 +210,7 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
         trackPendingExecution(jobExecution);
         long now = context.currentTimeMillis();
         long nextFireTime = jobExecution.getNextFireTime();
-        long delayNs = (Math.max(nextFireTime - now, 0) * 1_000_000) - 500_000;
+        long delayNs = (Math.max(nextFireTime - now, 0) * 1_000_000) - 400_000;
         onExecutionReceived(jobExecution, now, nextFireTime, delayNs);
 
         log.debug("executeJob({}), currentTime: {}, registerSyncTime:{}, fireTime:{}, (delay:{} ms)", jobExecution.getExecutionId(),

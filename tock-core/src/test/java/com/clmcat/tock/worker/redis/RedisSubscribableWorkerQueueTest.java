@@ -19,6 +19,36 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class RedisSubscribableWorkerQueueTest extends RedisTestSupport {
 
     @Test
+    void shouldFollowLifecycleContract() {
+        RedisSubscribableWorkerQueue queue = new RedisSubscribableWorkerQueue(namespace, jedisPool);
+        MemoryTockRegister register = new MemoryTockRegister("queue-lifecycle-register", MemoryManager.create());
+        TockContext context = TockContext.builder()
+                .register(register)
+                .scheduleStore(MemoryScheduleStore.create())
+                .jobStore(MemoryJobStore.create())
+                .workerQueue(queue)
+                .jobRegistry(new DefaultJobRegistry())
+                .consumerExecutor(consumerExecutor)
+                .workerExecutor(workerExecutor)
+                .timeSource(new com.clmcat.tock.time.DefaultTimeSynchronizer(new com.clmcat.tock.time.SystemTimeProvider(), 100L, 3))
+                .build();
+        queue.setTockContext(context);
+
+        Assertions.assertFalse(queue.isStarted());
+        queue.start(context);
+        try {
+            Assertions.assertTrue(queue.isStarted());
+            queue.start(context);
+            Assertions.assertTrue(queue.isStarted());
+        } finally {
+            queue.stop();
+            Assertions.assertFalse(queue.isStarted());
+            queue.stop();
+            Assertions.assertFalse(queue.isStarted());
+        }
+    }
+
+    @Test
     void shouldDeliverPublishedJobsToSubscribers() throws Exception {
         RedisSubscribableWorkerQueue queue = new RedisSubscribableWorkerQueue(namespace, jedisPool);
         MemoryTockRegister register = new MemoryTockRegister("queue-register", MemoryManager.create());

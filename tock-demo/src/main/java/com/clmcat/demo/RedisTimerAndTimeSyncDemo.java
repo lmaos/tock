@@ -5,6 +5,7 @@ import com.clmcat.tock.Tock;
 import com.clmcat.tock.registry.redis.RedisTockRegister;
 import com.clmcat.tock.schedule.ScheduleConfig;
 import com.clmcat.tock.schedule.redis.RedisScheduleStore;
+import com.clmcat.tock.time.HealthTimeProvider;
 import com.clmcat.tock.time.RedisTimeProvider;
 import com.clmcat.tock.worker.redis.RedisSubscribableWorkerQueue;
 import com.clmcat.tock.worker.scheduler.TaskSchedulers;
@@ -36,7 +37,7 @@ public class RedisTimerAndTimeSyncDemo {
                 .register(register)
                 .workerQueue(RedisSubscribableWorkerQueue.create(namespace, jedisPool))
                 .scheduleStore(RedisScheduleStore.create(namespace, jedisPool))
-                .timeProvider(new RedisTimeProvider(jedisPool::getResource))
+                .timeProvider(new HealthTimeProvider())
                 .build();
 
 

@@ -261,7 +261,6 @@ public class Tock {
         // 时间接口默认实现
         if (Objects.isNull(timeSynchronizer)) {
             this.timeSynchronizer = new DefaultTimeSynchronizer(this.timeProvider, 5000, 5);
-            this.timeSynchronizer.forceReinitialize();
         }
 
         if (Objects.isNull(this.scheduler)) {

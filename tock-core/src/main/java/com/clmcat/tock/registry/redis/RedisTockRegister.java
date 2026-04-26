@@ -13,7 +13,6 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
 import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -37,9 +36,8 @@ public class RedisTockRegister extends RedisSupport implements TockRegister {
     private final long heartbeatIntervalMs;
     private final RedisTockMaster master;
     private final RedisTockCurrentNode currentNode;
-    private final AtomicBoolean started = new AtomicBoolean(false);
     private final Object timeJedisMonitor = new Object();
-    private volatile TockContext context;
+    private volatile com.clmcat.tock.TockContext tockContext;
     private volatile Jedis timeJedis;
 
     public RedisTockRegister(String namespace, JedisPool jedisPool) {
@@ -79,10 +77,7 @@ public class RedisTockRegister extends RedisSupport implements TockRegister {
 
     @Override
     public TockNode getNode(String nodeId) {
-        if (currentNode.getId().equals(nodeId)) {
-            return new RedisTockNode(namespace, jedisPool, serializer, namespace, nodeId, leaseTimeoutMs, heartbeatIntervalMs, context::currentTimeMillis);
-        }
-        return new RedisTockNode(namespace, jedisPool, serializer, namespace, nodeId, leaseTimeoutMs, heartbeatIntervalMs, context::currentTimeMillis);
+        return new RedisTockNode(namespace, jedisPool, serializer, namespace, nodeId, leaseTimeoutMs, heartbeatIntervalMs, currentTimeSupplier());
     }
 
     @Override
@@ -99,7 +94,7 @@ public class RedisTockRegister extends RedisSupport implements TockRegister {
 
     @Override
     public List<TockNode> getExpiredNodes() {
-        long now = context.currentTimeMillis();
+        long now = currentTimeSupplier().getAsLong();
         long cutoff = now - leaseTimeoutMs;
         return withJedis(jedis -> {
             List<String> nodeIds = new ArrayList<>(jedis.zrangeByScore(nodeIndexKey(), 0, cutoff));
@@ -182,28 +177,29 @@ public class RedisTockRegister extends RedisSupport implements TockRegister {
     }
 
     @Override
-    public void start(TockContext context) {
-        if (!started.compareAndSet(false, true)) return;
-        this.context = context;
+    protected void onStart() {
+        this.tockContext = context;
         // 先启动节点，再启动主机，这样主机选举能直接拿到当前节点 ID。
-        currentNode.start(context);
-        master.start(context);
+        try {
+            currentNode.start(context);
+            master.start(context);
+        } catch (RuntimeException e) {
+            master.stop();
+            currentNode.stop();
+            this.tockContext = null;
+            throw e;
+        }
     }
 
     @Override
-    public void stop() {
-        if (!started.compareAndSet(true, false)) return;
+    protected void onStop() {
         master.stop();
         currentNode.stop();
         closeTimeJedis();
         if (ownPool) {
             jedisPool.close();
         }
-    }
-
-    @Override
-    public boolean isStarted() {
-        return started.get();
+        this.tockContext = null;
     }
 
 
@@ -244,6 +240,11 @@ public class RedisTockRegister extends RedisSupport implements TockRegister {
 
     private String nodeAttrKey(String nodeId) {
         return key("node:" + nodeId + ":attrs");
+    }
+
+    private java.util.function.LongSupplier currentTimeSupplier() {
+        TockContext localContext = tockContext;
+        return localContext == null ? System::currentTimeMillis : localContext::currentTimeMillis;
     }
 
     private static String prefix(String name) {

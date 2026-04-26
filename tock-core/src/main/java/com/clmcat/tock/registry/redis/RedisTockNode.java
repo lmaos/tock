@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 /**
  * Redis 版普通节点视图。
  * <p>
- * 只暴露 TockNode 能力，不包含生命周期和监听器。
+ * 只暴露 TockNode 能力；生命周期钩子由子类按需覆盖，默认是无操作。
  * 当前节点实现会继承这个类，再补上 start/stop/heartbeat 逻辑。
  * </p>
  */

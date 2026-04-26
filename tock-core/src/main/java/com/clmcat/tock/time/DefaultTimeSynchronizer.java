@@ -1,5 +1,6 @@
 package com.clmcat.tock.time;
 
+import com.clmcat.tock.Lifecycle;
 import com.clmcat.tock.TockContext;
 import lombok.extern.slf4j.Slf4j;
 
@@ -49,7 +50,7 @@ import java.util.function.LongSupplier;
  * @see SystemTimeProvider
  */
 @Slf4j
-public class DefaultTimeSynchronizer implements TimeSynchronizer {
+public class DefaultTimeSynchronizer extends Lifecycle.AbstractLifecycle implements TimeSynchronizer {
 
     /** 默认同步间隔：1 秒 */
     private static final long DEFAULT_SYNC_INTERVAL_MS = 1000L;
@@ -88,14 +89,14 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     private final AtomicLong lastReturnedTimeMs = new AtomicLong(Long.MIN_VALUE);
     /** 偏移量是否已经过首次初始化 */
     private final AtomicBoolean offsetInitialized = new AtomicBoolean(false);
-    /** 同步器是否正在运行 */
-    private final AtomicBoolean started = new AtomicBoolean(false);
     /** 上一次参与稳定性判断的样本偏移 */
     private long lastSampledOffsetMs = Long.MIN_VALUE;
     /** 上一次同步发生时的单调纳秒时间 */
     private long lastSyncNanoTime = Long.MIN_VALUE;
     /** 连续稳定样本轮次 */
     private int stableSampleRounds = 0;
+    /** 当前线程绑定的时间快照 */
+    private final ThreadLocal<TimeSnapshot> threadLocalSnapshot = new ThreadLocal<>();
 
     /** 执行周期性同步的调度线程池 */
     private ScheduledExecutorService scheduler;
@@ -125,8 +126,8 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         MonotonicAnchor anchor = captureMonotonicAnchor(this.wallClockMsSupplier, this.nanoTimeSupplier);
         this.monotonicBaseWallClockMs = anchor.wallClockMs;
         this.monotonicBaseNanoTime = anchor.nanoTime;
-        syncNow();
     }
+
 
     /**
      * 获取经过同步和单调性保护后的当前时间戳（毫秒）。
@@ -137,10 +138,50 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
      */
     @Override
     public long currentTimeMillis() {
+        TimeSnapshot snapshot = threadLocalSnapshot.get();
+        if (snapshot != null) {
+            if (snapshot.isExpired()) {
+                threadLocalSnapshot.remove();
+            } else {
+                return publishMonotonic(snapshot.currentTimeMillis());
+            }
+        }
+        return publishMonotonic(currentSyncedTimeMillis());
+    }
+
+    @Override
+    public TimeSnapshot snapshot(long ttlMs) {
+        long capturedWallClockMs = wallClockMsSupplier.getAsLong();
+        long expiresAtMs = ttlMs <= 0L
+                ? capturedWallClockMs
+                : (capturedWallClockMs >= Long.MAX_VALUE - ttlMs ? Long.MAX_VALUE : capturedWallClockMs + ttlMs);
+        return new TimeSnapshot(currentSyncedTimeMillis(), nanoTimeSupplier.getAsLong(), expiresAtMs,
+                wallClockMsSupplier, nanoTimeSupplier);
+    }
+
+    @Override
+    public void bindSnapshot(TimeSnapshot snapshot) {
+        if (snapshot == null) {
+            threadLocalSnapshot.remove();
+        } else {
+            threadLocalSnapshot.set(snapshot);
+        }
+    }
+
+    @Override
+    public void clearSnapshot() {
+        threadLocalSnapshot.remove();
+    }
+
+    private long currentSyncedTimeMillis() {
         long adjusted = monotonicTimeMillis();
         if (!isSystemTimeProvider) {
             adjusted += offsetMs.get();
         }
+        return adjusted;
+    }
+
+    private long publishMonotonic(long adjusted) {
         for (;;) {
             long previous = lastReturnedTimeMs.get();
             long candidate = adjusted <= previous ? previous : adjusted;
@@ -240,22 +281,25 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         return newOffset;
     }
 
+    @Override
+    protected void onInit() {
+        if (isSystemTimeProvider) {
+            return;
+        }
+        syncNow();
+    }
+
     /**
      * 启动后台周期性同步任务。
      * <p>
      * 注意：若时间提供者为 {@link SystemTimeProvider}，则不会启动任何后台线程，所有同步操作均为空操作。
      * </p>
      *
-     * @param context Tock 上下文（未使用，保留扩展）
+     *
      */
     @Override
-    public synchronized void start(TockContext context) {
+    public void onStart() {
         if (isSystemTimeProvider) {
-            started.set(false);
-            return;
-        }
-
-        if (!started.compareAndSet(false, true)) {
             return;
         }
 
@@ -271,10 +315,8 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
     }
 
     @Override
-    public synchronized void stop() {
-        if (!started.compareAndSet(true, false)) {
-            return;
-        }
+    public void onStop() {
+
         if (future != null) {
             future.cancel(true);
             future = null;
@@ -285,9 +327,7 @@ public class DefaultTimeSynchronizer implements TimeSynchronizer {
         }
     }
 
-    public boolean isStarted() {
-        return started.get();
-    }
+
 
     private ScheduledExecutorService createScheduler() {
         ThreadFactory factory = r -> {

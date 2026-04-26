@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class RedisTockMasterTest extends RedisTestSupport {
 
@@ -59,6 +60,37 @@ public class RedisTockMasterTest extends RedisTestSupport {
         } finally {
             register1.stop();
             register2.stop();
+        }
+    }
+
+    @Test
+    void shouldRetryMasterListenerFailuresWithoutNpe() throws Exception {
+        RedisTockRegister register = new RedisTockRegister(namespace, jedisPool, null, 1000L, 100L);
+        TockContext context = buildContext(register, MemoryPullableWorkerQueue.create(), MemoryScheduleStore.create(), MemoryJobStore.create());
+        AtomicInteger becomeCalls = new AtomicInteger();
+        CountDownLatch successLatch = new CountDownLatch(1);
+
+        register.getMaster().addListener(new MasterListener() {
+            @Override
+            public void onBecomeMaster() {
+                if (becomeCalls.getAndIncrement() == 0) {
+                    throw new IllegalStateException("simulated master listener failure");
+                }
+                successLatch.countDown();
+            }
+
+            @Override
+            public void onLoseMaster() {
+            }
+        });
+
+        register.start(context);
+        try {
+            Assertions.assertTrue(successLatch.await(3, TimeUnit.SECONDS));
+            Assertions.assertTrue(register.getMaster().isMaster());
+            Assertions.assertTrue(becomeCalls.get() >= 2);
+        } finally {
+            register.stop();
         }
     }
 }

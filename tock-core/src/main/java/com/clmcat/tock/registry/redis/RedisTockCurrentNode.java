@@ -48,17 +48,35 @@ public class RedisTockCurrentNode extends RedisTockNode implements TockCurrentNo
     }
 
 
-    public void start(TockContext context) {
+    @Override
+    protected void onStart() {
         if (!running.compareAndSet(false, true)) return;
         this.tockContext = context;
-        writeLease(currentTimeMillis());
-        heartbeatExecutor = createScheduler();
-        heartbeatFuture = heartbeatExecutor.scheduleWithFixedDelay(this::refreshLease, getHeartbeatIntervalMsInternal(), getHeartbeatIntervalMsInternal(), TimeUnit.MILLISECONDS);
-        onRunning();
+        try {
+            writeLease(currentTimeMillis());
+            heartbeatExecutor = createScheduler();
+            heartbeatFuture = heartbeatExecutor.scheduleWithFixedDelay(this::refreshLease, getHeartbeatIntervalMsInternal(), getHeartbeatIntervalMsInternal(), TimeUnit.MILLISECONDS);
+            onRunning();
+        } catch (RuntimeException e) {
+            running.set(false);
+            if (heartbeatFuture != null) {
+                heartbeatFuture.cancel(true);
+                heartbeatFuture = null;
+            }
+            if (heartbeatExecutor != null) {
+                heartbeatExecutor.shutdownNow();
+                heartbeatExecutor = null;
+            }
+            markInactive();
+            clearAttributes();
+            this.tockContext = null;
+            throw e;
+        }
     }
 
 
-    public void stop() {
+    @Override
+    protected void onStop() {
         if (!running.compareAndSet(true, false)) return;
         if (heartbeatFuture != null) {
             heartbeatFuture.cancel(true);
@@ -72,6 +90,7 @@ public class RedisTockCurrentNode extends RedisTockNode implements TockCurrentNo
         markInactive();
         clearAttributes();
         onStopped();
+        this.tockContext = null;
     }
 
 
@@ -98,7 +117,8 @@ public class RedisTockCurrentNode extends RedisTockNode implements TockCurrentNo
 
     @Override
     protected long currentTimeMillis() {
-        return tockContext == null ? super.currentTimeMillis() : tockContext.currentTimeMillis();
+        TockContext localContext = tockContext;
+        return localContext == null ? super.currentTimeMillis() : localContext.currentTimeMillis();
     }
 
     private ScheduledExecutorService createScheduler() {

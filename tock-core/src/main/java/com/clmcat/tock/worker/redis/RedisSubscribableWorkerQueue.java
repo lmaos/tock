@@ -1,6 +1,5 @@
 package com.clmcat.tock.worker.redis;
 
-import com.clmcat.tock.Lifecycle;
 import com.clmcat.tock.TockContext;
 import com.clmcat.tock.TockContextAware;
 import com.clmcat.tock.redis.RedisSupport;
@@ -24,7 +23,7 @@ import java.util.function.Consumer;
  * </p>
  */
 @Slf4j
-public class RedisSubscribableWorkerQueue extends RedisSupport implements SubscribableWorkerQueue, TockContextAware , Lifecycle {
+public class RedisSubscribableWorkerQueue extends RedisSupport implements SubscribableWorkerQueue, TockContextAware {
 
     private static final int DEFAULT_SHARD_COUNT = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
     private static final int BLPOP_TIMEOUT_SECONDS = 1;
@@ -32,7 +31,6 @@ public class RedisSubscribableWorkerQueue extends RedisSupport implements Subscr
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<Consumer<JobExecution>>> subscribers = new ConcurrentHashMap<>();
     private DispatcherShard[] shards;
     private volatile TockContext context;
-    private volatile boolean started = false;
     private final int shardCount;
 
     public RedisSubscribableWorkerQueue(String namespace, JedisPool jedisPool) {
@@ -48,6 +46,7 @@ public class RedisSubscribableWorkerQueue extends RedisSupport implements Subscr
     public static @NonNull WorkerQueue create(String namespace, JedisPool jedisPool) {
         return new RedisSubscribableWorkerQueue(namespace, jedisPool);
     }
+
     public void init() {
         if (this.shards == null) {
             int normalizedShardCount = Math.max(1, shardCount);
@@ -57,27 +56,20 @@ public class RedisSubscribableWorkerQueue extends RedisSupport implements Subscr
             }
         }
     }
+
     @Override
-    public void start(TockContext context) {
-        if (started) {
-            return;
-        }
-        started = true;
+    protected void onStart() {
         init();
     }
 
     @Override
-    public void stop() {
-        started = false;
-        for (DispatcherShard shard : shards) {
-            shard.shutdown();
+    protected void onStop() {
+        if (shards != null) {
+            for (DispatcherShard shard : shards) {
+                shard.shutdown();
+            }
+            shards = null;
         }
-        shards = null;
-    }
-
-    @Override
-    public boolean isStarted() {
-        return started;
     }
 
 

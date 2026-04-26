@@ -67,16 +67,26 @@ public class RedisTockMaster extends RedisSupport implements TockMaster {
     }
 
     @Override
-    public void start(TockContext context) {
+    protected void onStart() {
         if (startFuture != null) return;
         this.tockContext = context;
-        selectMaster();
         task = createScheduler();
-        startFuture = task.scheduleWithFixedDelay(this::selectMaster, heartbeatIntervalMs, heartbeatIntervalMs, TimeUnit.MILLISECONDS);
+        try {
+            selectMaster();
+            startFuture = task.scheduleWithFixedDelay(this::selectMaster, heartbeatIntervalMs, heartbeatIntervalMs, TimeUnit.MILLISECONDS);
+        } catch (RuntimeException e) {
+            if (task != null) {
+                task.shutdownNow();
+                task = null;
+            }
+            releaseMaster();
+            this.tockContext = null;
+            throw e;
+        }
     }
 
     @Override
-    public void stop() {
+    protected void onStop() {
         if (startFuture == null) return;
         startFuture.cancel(true);
         startFuture = null;
@@ -85,6 +95,7 @@ public class RedisTockMaster extends RedisSupport implements TockMaster {
             task = null;
         }
         releaseMaster();
+        this.tockContext = null;
     }
 
     @Override

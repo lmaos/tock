@@ -2,6 +2,7 @@ package com.clmcat.tock.registry.redis;
 
 import com.clmcat.tock.RedisTestSupport;
 import com.clmcat.tock.TockContext;
+import com.clmcat.tock.Lifecycle;
 import com.clmcat.tock.registry.TockCurrentNode;
 import com.clmcat.tock.registry.TockNode;
 import com.clmcat.tock.time.DefaultTimeSynchronizer;
@@ -37,8 +38,18 @@ public class RedisTockRegisterTest extends RedisTestSupport {
                 .timeSource(new DefaultTimeSynchronizer(new RedisTimeProvider(jedisPool::getResource), 250L, 3))
                 .build();
 
+        Assertions.assertTrue(register instanceof Lifecycle);
+        Assertions.assertTrue(register.getMaster() instanceof Lifecycle);
+        Assertions.assertTrue(register.getCurrentNode() instanceof Lifecycle);
+        Assertions.assertDoesNotThrow(() -> register.getNode("node-before-start"));
+        Assertions.assertTrue(register.getExpiredNodes().isEmpty());
+        ((Lifecycle) context.getTimeSource()).start(context);
         register.start(context);
         try {
+            Assertions.assertTrue(register.isStarted());
+            Assertions.assertTrue(((Lifecycle) register.getMaster()).isStarted());
+            Assertions.assertTrue(((Lifecycle) register.getCurrentNode()).isStarted());
+
             long redisTime = redisTimeMillis();
             long syncedTime = context.currentTimeMillis();
             Assertions.assertTrue(Math.abs(redisTime - syncedTime) < 200L, "context clock should stay close to Redis time");
@@ -59,6 +70,10 @@ public class RedisTockRegisterTest extends RedisTestSupport {
             Assertions.assertEquals(TockNode.NodeStatus.UNKNOWN, register.getCurrentNode().getStatus());
         } finally {
             register.stop();
+            ((Lifecycle) context.getTimeSource()).stop();
+            Assertions.assertFalse(register.isStarted());
+            Assertions.assertFalse(((Lifecycle) register.getMaster()).isStarted());
+            Assertions.assertFalse(((Lifecycle) register.getCurrentNode()).isStarted());
         }
     }
 

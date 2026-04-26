@@ -1,5 +1,6 @@
 package com.clmcat.tock.redis;
 
+import com.clmcat.tock.Lifecycle;
 import com.clmcat.tock.serialize.Serializer;
 import com.clmcat.tock.serialize.JavaSerializer;
 import com.clmcat.tock.serialize.VersionedSerializer;
@@ -16,10 +17,11 @@ import java.util.function.Function;
  * <p>
  * 只负责三件事：连接、命名空间和对象编解码。
  * 这样主机、节点、队列和调度存储可以保持各自职责单一。
+ * 生命周期钩子在这里统一接入，子类按需覆盖即可。
  * </p>
  */
 @Slf4j
-public abstract class RedisSupport {
+public abstract class RedisSupport extends Lifecycle.AbstractLifecycle {
 
     protected final JedisPool jedisPool;
     protected final String namespace;
@@ -73,6 +75,16 @@ public abstract class RedisSupport {
         } catch (Exception e) {
             throw new IllegalStateException("Redis decode failed for " + type.getName(), e);
         }
+    }
+
+    @Override
+    protected void onStart() {
+        // Redis 支撑类本身不负责启动资源，由子类按需开启。
+    }
+
+    @Override
+    protected void onStop() {
+        // Redis 支撑类本身不负责关闭资源，由子类按需释放。
     }
 
     private String normalizeNamespace(String namespace) {
