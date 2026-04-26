@@ -26,7 +26,7 @@ public class DefaultTimeSynchronizerTest {
     }
 
     @Test
-    void shouldNotMarkSystemProviderAsRunning() {
+    void shouldSkipSnapshotForSystemProvider() {
         TimeSyncBenchmarkSupport.FakeClock clock = new TimeSyncBenchmarkSupport.FakeClock(1_700_000_000_000L, 0L, 0L);
         DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(
                 new SystemTimeProvider(),
@@ -36,10 +36,12 @@ public class DefaultTimeSynchronizerTest {
                 clock::nanoTime
         );
 
-        synchronizer.start(null);
+        long first = synchronizer.currentTimeMillis();
+        Assertions.assertNull(synchronizer.snapshot(100L));
+        clock.advanceRealMillis(995L);
+        long second = synchronizer.currentTimeMillis();
 
-        Assertions.assertTrue(synchronizer.isStarted());
-        Assertions.assertEquals(0L, synchronizer.offset());
+        Assertions.assertEquals(995L, second - first);
     }
 
     @Test

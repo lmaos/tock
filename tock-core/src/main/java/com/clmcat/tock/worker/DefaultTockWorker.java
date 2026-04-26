@@ -13,6 +13,9 @@ import com.clmcat.tock.registry.TockRegister;
 import com.clmcat.tock.schedule.ScheduleConfig;
 import com.clmcat.tock.schedule.ScheduleExecutionGuard;
 import com.clmcat.tock.store.JobExecution;
+import com.clmcat.tock.time.SystemTimeProvider;
+import com.clmcat.tock.time.TimeSnapshot;
+import com.clmcat.tock.time.TimeSynchronizer;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Collections;
@@ -25,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifecycle implements TockWorker {
+    private static final long DEFAULT_JOB_SNAPSHOT_TTL_MS = TimeUnit.MINUTES.toMillis(1);
     /**
      * 拉取模式（PullableWorkerQueue）下，每次 poll 操作的超时时间（毫秒）。
      * 超时后返回 null，进入空闲判断逻辑。
@@ -207,23 +211,31 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
         if (!isStarted()) {
             return;
         }
-        trackPendingExecution(jobExecution);
-        long now = context.currentTimeMillis();
-        long nextFireTime = jobExecution.getNextFireTime();
-        long delayNs = (Math.max(nextFireTime - now, 0) * 1_000_000) - 400_000;
-        onExecutionReceived(jobExecution, now, nextFireTime, delayNs);
+        TimeSynchronizer timeSynchronizer = context.getTimeSynchronizer();
+        TimeSnapshot timeSnapshot = captureExecutionSnapshot(timeSynchronizer, jobExecution);
+        bindSnapshot(timeSynchronizer, timeSnapshot);
+        try {
+            trackPendingExecution(jobExecution);
+            long now = context.currentTimeMillis();
+            long nextFireTime = jobExecution.getNextFireTime();
+            long delayNs = (Math.max(nextFireTime - now, 0) * 1_000_000) - 400_000;
+            onExecutionReceived(jobExecution, now, nextFireTime, delayNs);
 
-        log.debug("executeJob({}), currentTime: {}, registerSyncTime:{}, fireTime:{}, (delay:{} ms)", jobExecution.getExecutionId(),
-                System.currentTimeMillis(), context.currentTimeMillis(), nextFireTime, delayNs / 1_000_000);
+            log.debug("executeJob({}), currentTime: {}, registerSyncTime:{}, fireTime:{}, (delay:{} ms)", jobExecution.getExecutionId(),
+                    System.currentTimeMillis(), context.currentTimeMillis(), nextFireTime, delayNs / 1_000_000);
 
-        if (delayNs <= 0) {
-            onExecutionScheduled(jobExecution, delayNs, true);
-            Future<?> future = context.getWorkerExecutor().submit(() -> executeWhenDue(jobExecution));
-            trackExecutionFuture(jobExecution, future);
-        } else {
-            onExecutionScheduled(jobExecution, delayNs, false);
-            Future<?> schedule = context.getWorkerExecutor().schedule(() -> executeWhenDue(jobExecution), delayNs, TimeUnit.NANOSECONDS);
-            trackExecutionFuture(jobExecution, schedule);
+            Runnable dueTask = new SnapshotRunnable(timeSynchronizer, timeSnapshot, () -> executeWhenDue(jobExecution));
+            if (delayNs <= 0) {
+                onExecutionScheduled(jobExecution, delayNs, true);
+                Future<?> future = context.getWorkerExecutor().submit(dueTask);
+                trackExecutionFuture(jobExecution, future);
+            } else {
+                onExecutionScheduled(jobExecution, delayNs, false);
+                Future<?> schedule = context.getWorkerExecutor().schedule(dueTask, delayNs, TimeUnit.NANOSECONDS);
+                trackExecutionFuture(jobExecution, schedule);
+            }
+        } finally {
+            clearSnapshot(timeSynchronizer);
         }
     }
 
@@ -281,7 +293,9 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
                     .jobId(jobId)
                     .scheduledTime(nextFireTime)
                     .actualFireTime(currentTimeMillis)
-                    .params(jobExecution.getParams()).build();
+                    .params(jobExecution.getParams())
+                    .timeSource(currentSnapshotOrContextTimeSource())
+                    .build();
 
 
             jobExecutor.execute(jobContext);
@@ -396,6 +410,40 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
                 && context.getConfig().isPendingExecutionRecoveryEnabled();
     }
 
+    private TimeSnapshot captureExecutionSnapshot(TimeSynchronizer timeSynchronizer, JobExecution jobExecution) {
+        if (timeSynchronizer == null || context == null || context.getTimeProvider() instanceof SystemTimeProvider) {
+            return null;
+        }
+        long now = context.currentTimeMillis();
+        long leadTimeMs = Math.max(jobExecution.getNextFireTime() - now, 0L);
+        long ttlMs = Math.min(DEFAULT_JOB_SNAPSHOT_TTL_MS,
+                Math.max(TimeUnit.SECONDS.toMillis(5), leadTimeMs + TimeUnit.SECONDS.toMillis(5)));
+        return timeSynchronizer.snapshot(ttlMs);
+    }
+
+    private void bindSnapshot(TimeSynchronizer timeSynchronizer, TimeSnapshot timeSnapshot) {
+        if (timeSynchronizer != null && timeSnapshot != null) {
+            timeSynchronizer.bindSnapshot(timeSnapshot);
+        }
+    }
+
+    private void clearSnapshot(TimeSynchronizer timeSynchronizer) {
+        if (timeSynchronizer != null) {
+            timeSynchronizer.clearSnapshot();
+        }
+    }
+
+    private com.clmcat.tock.time.TimeSource currentSnapshotOrContextTimeSource() {
+        TimeSynchronizer timeSynchronizer = context.getTimeSynchronizer();
+        if (timeSynchronizer != null) {
+            TimeSnapshot snapshot = timeSynchronizer.currentSnapshot();
+            if (snapshot != null) {
+                return snapshot;
+            }
+        }
+        return context.getTimeSource();
+    }
+
     protected void onExecutionReceived(JobExecution jobExecution, long currentTimeMs, long nextFireTimeMs, long delayMs) {
     }
 
@@ -409,6 +457,32 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
     }
 
     protected void onExecutionDue(JobExecution jobExecution, long currentTimeMs) {
+    }
+
+    private static final class SnapshotRunnable implements Runnable {
+        private final TimeSynchronizer timeSynchronizer;
+        private final TimeSnapshot timeSnapshot;
+        private final Runnable delegate;
+
+        private SnapshotRunnable(TimeSynchronizer timeSynchronizer, TimeSnapshot timeSnapshot, Runnable delegate) {
+            this.timeSynchronizer = timeSynchronizer;
+            this.timeSnapshot = timeSnapshot;
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void run() {
+            if (timeSynchronizer == null || timeSnapshot == null) {
+                delegate.run();
+                return;
+            }
+            timeSynchronizer.bindSnapshot(timeSnapshot);
+            try {
+                delegate.run();
+            } finally {
+                timeSynchronizer.clearSnapshot();
+            }
+        }
     }
 
     @Override

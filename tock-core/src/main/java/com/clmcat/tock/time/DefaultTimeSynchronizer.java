@@ -138,19 +138,21 @@ public class DefaultTimeSynchronizer extends Lifecycle.AbstractLifecycle impleme
      */
     @Override
     public long currentTimeMillis() {
-        TimeSnapshot snapshot = threadLocalSnapshot.get();
+        if (isSystemTimeProvider) {
+            return wallClockMsSupplier.getAsLong();
+        }
+        TimeSnapshot snapshot = currentSnapshot();
         if (snapshot != null) {
-            if (snapshot.isExpired()) {
-                threadLocalSnapshot.remove();
-            } else {
-                return publishMonotonic(snapshot.currentTimeMillis());
-            }
+            return publishMonotonic(snapshot.currentTimeMillis());
         }
         return publishMonotonic(currentSyncedTimeMillis());
     }
 
     @Override
     public TimeSnapshot snapshot(long ttlMs) {
+        if (isSystemTimeProvider) {
+            return null;
+        }
         long capturedWallClockMs = wallClockMsSupplier.getAsLong();
         long expiresAtMs = ttlMs <= 0L
                 ? capturedWallClockMs
@@ -160,7 +162,24 @@ public class DefaultTimeSynchronizer extends Lifecycle.AbstractLifecycle impleme
     }
 
     @Override
+    public TimeSnapshot currentSnapshot() {
+        if (isSystemTimeProvider) {
+            return null;
+        }
+        TimeSnapshot snapshot = threadLocalSnapshot.get();
+        if (snapshot != null && snapshot.isExpired()) {
+            threadLocalSnapshot.remove();
+            return null;
+        }
+        return snapshot;
+    }
+
+    @Override
     public void bindSnapshot(TimeSnapshot snapshot) {
+        if (isSystemTimeProvider) {
+            threadLocalSnapshot.remove();
+            return;
+        }
         if (snapshot == null) {
             threadLocalSnapshot.remove();
         } else {

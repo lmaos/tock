@@ -10,7 +10,7 @@ import java.util.function.LongSupplier;
  * 调用方应回退到时间同步器的默认逻辑。
  * </p>
  */
-public final class TimeSnapshot {
+public final class TimeSnapshot implements TimeSource {
 
     private final long seedTimeMs;
     private final long capturedNanoTime;
