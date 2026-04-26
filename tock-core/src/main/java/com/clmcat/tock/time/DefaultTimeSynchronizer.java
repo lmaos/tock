@@ -35,8 +35,8 @@ import java.util.function.LongSupplier;
  *         后台线程以固定间隔执行采样，动态更新偏移量，使同步时间与远程源保持最终一致。
  *     </li>
  *     <li><b>系统时间优化</b>：
- *         若 {@link TimeProvider} 为 {@link SystemTimeProvider} 实例，则退化为基于本地墙钟锚点 +
- *         单调时钟生成时间，不启动后台线程，不进行偏移计算，以避免墙钟跳变与本地等待逻辑失配。
+ *         若 {@link TimeProvider} 为 {@link SystemTimeProvider} 或其子类，则直接返回提供者当前时间，
+ *         不启动后台线程，不进行偏移计算，也不再经过本地墙钟二次包装。
  *     </li>
  * </ul>
  *
@@ -139,7 +139,7 @@ public class DefaultTimeSynchronizer extends Lifecycle.AbstractLifecycle impleme
     @Override
     public long currentTimeMillis() {
         if (isSystemTimeProvider) {
-            return wallClockMsSupplier.getAsLong();
+            return timeProvider.currentTimeMillis();
         }
         TimeSnapshot snapshot = currentSnapshot();
         if (snapshot != null) {

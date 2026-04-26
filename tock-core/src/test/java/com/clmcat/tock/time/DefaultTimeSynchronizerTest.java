@@ -8,10 +8,17 @@ import java.util.concurrent.atomic.AtomicLong;
 public class DefaultTimeSynchronizerTest {
 
     @Test
-    void shouldKeepSystemProviderMonotonic() {
+    void shouldUseDirectSystemProviderTime() {
         TimeSyncBenchmarkSupport.FakeClock clock = new TimeSyncBenchmarkSupport.FakeClock(1_700_000_000_000L, 0L, 0L);
+        AtomicLong providerTime = new AtomicLong(42_000L);
+        SystemTimeProvider provider = new SystemTimeProvider() {
+            @Override
+            public long currentTimeMillis() {
+                return providerTime.get();
+            }
+        };
         DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(
-                new SystemTimeProvider(),
+                provider,
                 100L,
                 1,
                 clock::currentTimeMillis,
@@ -19,17 +26,28 @@ public class DefaultTimeSynchronizerTest {
         );
 
         long first = synchronizer.currentTimeMillis();
+        Assertions.assertEquals(42_000L, first);
+
+        providerTime.set(43_500L);
         clock.advanceRealMillis(995L);
         long second = synchronizer.currentTimeMillis();
 
-        Assertions.assertEquals(995L, second - first);
+        Assertions.assertEquals(43_500L, second);
+        Assertions.assertEquals(1_500L, second - first);
     }
 
     @Test
     void shouldSkipSnapshotForSystemProvider() {
         TimeSyncBenchmarkSupport.FakeClock clock = new TimeSyncBenchmarkSupport.FakeClock(1_700_000_000_000L, 0L, 0L);
+        AtomicLong providerTime = new AtomicLong(7_000L);
+        SystemTimeProvider provider = new SystemTimeProvider() {
+            @Override
+            public long currentTimeMillis() {
+                return providerTime.get();
+            }
+        };
         DefaultTimeSynchronizer synchronizer = new DefaultTimeSynchronizer(
-                new SystemTimeProvider(),
+                provider,
                 100L,
                 1,
                 clock::currentTimeMillis,
@@ -38,10 +56,11 @@ public class DefaultTimeSynchronizerTest {
 
         long first = synchronizer.currentTimeMillis();
         Assertions.assertNull(synchronizer.snapshot(100L));
+        providerTime.set(7_250L);
         clock.advanceRealMillis(995L);
         long second = synchronizer.currentTimeMillis();
 
-        Assertions.assertEquals(995L, second - first);
+        Assertions.assertEquals(250L, second - first);
     }
 
     @Test
