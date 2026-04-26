@@ -61,6 +61,7 @@ Config -> Tock -> Register / ScheduleStore / WorkerQueue / TaskScheduler
 
 ## 文档入口
 
+- [入门使用](tock-core/README.md)
 - [核心模块设计](tock-core/docs/design/index.md)
 - [架构说明](tock-core/docs/architecture.md)
 - [扩展性说明](tock-core/docs/extensibility.md)
