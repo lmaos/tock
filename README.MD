@@ -1,12 +1,12 @@
 # Tock
 
-Tock 是一个面向 JVM 的分布式定时器内核。它的核心思路很简单：**Master 负责调度，Worker 负责执行**，调度结果会提前入队，最后一跳交给 Worker 本机定时器完成。
+Tock 是一个面向 JVM 的分布式定时器内核。可以先把它理解成：**Master 负责出计划，Worker 负责到点执行**，中间的结果会提前入队，最后一跳交给 Worker 本机定时器完成。
 
-这样做的好处是：
+这样拆开以后，几件事会更顺手：
 
-- 调度和执行解耦
-- 网络抖动只影响“任务到达 Worker 的时刻”，不直接放大成业务执行误差
-- 默认行为足够轻，复杂场景又能通过配置扩展
+- 调度和执行自然分开
+- 网络抖动主要影响任务到达时刻，不会直接放大成业务执行偏差
+- 默认行为比较轻，复杂场景也能慢慢加配置
 
 ## 运行方式
 
@@ -24,8 +24,8 @@ Config -> Tock -> Register / ScheduleStore / WorkerQueue / TaskScheduler
 
 补充两条支撑链路：
 
-- `time` 负责统一调度和 Worker 的时间基准
-- `health` 只负责健康、心跳、过期通知
+- `time` 负责统一调度和 Worker 的时间基准，系统时间也会走统一的快照形态
+- `health` 负责健康、心跳、过期通知，以及健康地址的更新
 - `serialize` 负责 Redis 组件之间的对象传输
 - `utils` 负责生命周期排序、引用保护、网络探测
 
@@ -38,7 +38,7 @@ Config -> Tock -> Register / ScheduleStore / WorkerQueue / TaskScheduler
 5. **Memory / Redis 同语义**：换存储，不换接口语义
 6. **调度提前，Worker 本地执行**：Master 提前把任务送进队列，Worker 到点后在本机执行，兼顾精度和效率
 
-## 我们重点解决什么
+## 重点解决什么
 
 - **分布式一致调度**：只有一个 Master 负责出计划
 - **执行精度**：Worker 本机定时器负责最后一跳，减少跨节点通信对精度的影响
@@ -47,9 +47,7 @@ Config -> Tock -> Register / ScheduleStore / WorkerQueue / TaskScheduler
 
 ## 性能和验证
 
-当前仓库不是只“能跑”，也做了比较完整的 benchmark 和 study。
-
-低调但实话实说地讲，结果是不错的：
+从现有 benchmark 看，整体表现还算稳：
 
 - **内存 Worker 严格 A/B**：`high-precision` 的 `worker-chain avg abs skew` 约 **0.360ms**，明显优于默认调度器的 **2.950ms**
 - **Windows 本机 Redis 稳态精度**：高精度 Worker 稳定在 **3ms 级**
@@ -59,7 +57,7 @@ Config -> Tock -> Register / ScheduleStore / WorkerQueue / TaskScheduler
 
 - 高精度执行器在本机链路里确实有价值
 - Redis 模式的主要成本更偏向消息通道和序列化，而不是 Worker 本地执行器本身
-- 当前实现已经能把精度、吞吐和可维护性放在一个比较平衡的位置
+- 当前实现已经把精度、吞吐和可维护性放在一个比较平衡的位置
 
 ## 文档入口
 

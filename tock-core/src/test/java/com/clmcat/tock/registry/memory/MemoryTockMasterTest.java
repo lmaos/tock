@@ -128,6 +128,7 @@ public class MemoryTockMasterTest {
                     @Override public <T> T getNodeAttribute(String name, Class<T> type) { return null; }
                     @Override public boolean removeNodeAttribute(String name) { return false; }
                     @Override public boolean setGroupAttributeIfAbsent(String name, Object value) { return false; }
+                    @Override public void setGroupAttribute(String name, Object value) { }
                     @Override public <T> T getGroupAttribute(String name, Class<T> type) { return null; }
                     @Override public boolean removeGroupAttribute(String name) { return false; }
                     @Override public void removeGroupAttributes(java.util.Collection<String> names) { }

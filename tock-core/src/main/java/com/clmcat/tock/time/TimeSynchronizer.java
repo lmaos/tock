@@ -16,7 +16,7 @@ public interface TimeSynchronizer extends TimeSource, Lifecycle {
     /**
      * 创建一个当前同步时间的线程快照。
      *
-     * @param ttlMs 快照有效期，毫秒
+     * @param ttlMs 保留参数，当前实现不基于有效期自动失效
      * @return 时间快照
      */
     TimeSnapshot snapshot(long ttlMs);
@@ -24,7 +24,7 @@ public interface TimeSynchronizer extends TimeSource, Lifecycle {
     /**
      * 获取当前线程绑定的时间快照。
      *
-     * @return 当前快照；不存在或已过期时返回 null
+     * @return 当前快照；不存在时返回 null
      */
     TimeSnapshot currentSnapshot();
 

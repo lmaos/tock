@@ -23,6 +23,11 @@
 
 上表里除了线程池和布尔开关，绝大多数字段本身都是接口，因此可以由业务侧替换为自定义实现。
 
+补充两点常见约定：
+
+- 时间链路默认会走 `TimeSynchronizer`，系统时间源也会返回统一的快照对象，业务线程可以直接用 `currentTimeMillis()`。
+- 心跳链路默认由内置 `HeartbeatReporter`/`HealthMaintainer` 接管，Worker 会在心跳首次建立后再恢复消费。
+
 ## 推荐配置
 
 ## 1. 本地开发 / Demo

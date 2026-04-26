@@ -151,35 +151,18 @@ public class DefaultTimeSynchronizer extends Lifecycle.AbstractLifecycle impleme
     @Override
     public TimeSnapshot snapshot(long ttlMs) {
         if (isSystemTimeProvider) {
-            return null;
+            return TimeSnapshot.systemTime(timeProvider.currentTimeMillis(), nanoTimeSupplier, timeProvider::currentTimeMillis);
         }
-        long capturedWallClockMs = wallClockMsSupplier.getAsLong();
-        long expiresAtMs = ttlMs <= 0L
-                ? capturedWallClockMs
-                : (capturedWallClockMs >= Long.MAX_VALUE - ttlMs ? Long.MAX_VALUE : capturedWallClockMs + ttlMs);
-        return new TimeSnapshot(currentSyncedTimeMillis(), nanoTimeSupplier.getAsLong(), expiresAtMs,
-                wallClockMsSupplier, nanoTimeSupplier);
+        return new TimeSnapshot(currentSyncedTimeMillis(), nanoTimeSupplier.getAsLong(), nanoTimeSupplier);
     }
 
     @Override
     public TimeSnapshot currentSnapshot() {
-        if (isSystemTimeProvider) {
-            return null;
-        }
-        TimeSnapshot snapshot = threadLocalSnapshot.get();
-        if (snapshot != null && snapshot.isExpired()) {
-            threadLocalSnapshot.remove();
-            return null;
-        }
-        return snapshot;
+        return threadLocalSnapshot.get();
     }
 
     @Override
     public void bindSnapshot(TimeSnapshot snapshot) {
-        if (isSystemTimeProvider) {
-            threadLocalSnapshot.remove();
-            return;
-        }
         if (snapshot == null) {
             threadLocalSnapshot.remove();
         } else {
@@ -407,12 +390,12 @@ public class DefaultTimeSynchronizer extends Lifecycle.AbstractLifecycle impleme
             return sampledOffset;
         }
         if (!sampleStable) {
-            log.info("Skip unstable time offset sample: current={}ms, sampled={}ms, spread={}ms, elapsed={}ms",
+            log.debug("Skip unstable time offset sample: current={}ms, sampled={}ms, spread={}ms, elapsed={}ms",
                     currentOffset, sampledOffset, sampleSpreadMs, elapsedSinceLastSyncMs);
             return currentOffset;
         }
         long delta = sampledOffset - currentOffset;
-        log.info("Old offset: {}, New Offset: {}, spread={}ms, elapsed={}ms",
+        log.debug("Old offset: {}, New Offset: {}, spread={}ms, elapsed={}ms",
                 currentOffset, sampledOffset, sampleSpreadMs, elapsedSinceLastSyncMs);
         if (Math.abs(delta) <= MAX_OFFSET_ADJUST_STEP_MS) {
             return sampledOffset;

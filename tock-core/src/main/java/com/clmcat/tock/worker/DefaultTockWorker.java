@@ -13,7 +13,6 @@ import com.clmcat.tock.registry.TockRegister;
 import com.clmcat.tock.schedule.ScheduleConfig;
 import com.clmcat.tock.schedule.ScheduleExecutionGuard;
 import com.clmcat.tock.store.JobExecution;
-import com.clmcat.tock.time.SystemTimeProvider;
 import com.clmcat.tock.time.TimeSnapshot;
 import com.clmcat.tock.time.TimeSynchronizer;
 import lombok.extern.slf4j.Slf4j;
@@ -28,7 +27,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifecycle implements TockWorker {
-    private static final long DEFAULT_JOB_SNAPSHOT_TTL_MS = TimeUnit.MINUTES.toMillis(1);
     /**
      * 拉取模式（PullableWorkerQueue）下，每次 poll 操作的超时时间（毫秒）。
      * 超时后返回 null，进入空闲判断逻辑。
@@ -74,7 +72,11 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
         register.getCurrentNode().addNodeListener(nodeListener = new NodeListener() {
             @Override
             public void onRunning() {
-                resume();
+            }
+
+            @Override
+            public void onStopped() {
+                pause(true);
             }
         });
         HeartbeatReporter heartbeatReporter = context.getHeartbeatReporter();
@@ -88,6 +90,13 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
                 }
 
                 @Override
+                public void onHeartbeatReportFirstSuccess() {
+                    if (isStarted() && !isRunning()) {
+                        resume();
+                    }
+                }
+
+                @Override
                 public void onHeartbeatReportRecovered() {
                     if (isStarted() && !isRunning()) {
                         resume();
@@ -95,6 +104,11 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
                 }
             };
             heartbeatReporter.addHeartbeatReportListener(heartbeatReportListener);
+            if (heartbeatReporter.isHeartbeatEstablished() && heartbeatReporter.isHeartbeatHealthy()) {
+                resume();
+            }
+        } else {
+            resume();
         }
         log.info("DefaultTockWorker started");
     }
@@ -212,7 +226,7 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
             return;
         }
         TimeSynchronizer timeSynchronizer = context.getTimeSynchronizer();
-        TimeSnapshot timeSnapshot = captureExecutionSnapshot(timeSynchronizer, jobExecution);
+        TimeSnapshot timeSnapshot = captureExecutionSnapshot(timeSynchronizer);
         bindSnapshot(timeSynchronizer, timeSnapshot);
         try {
             trackPendingExecution(jobExecution);
@@ -253,6 +267,10 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
     }
 
     void doExecuteJob(JobExecution jobExecution) {
+        if (!isRunning()) {
+            log.warn("DefaultTockWorker not started, doExecuteJob ({}) failed", jobExecution.getExecutionId());
+            return;
+        }
         String scheduleId = jobExecution.getScheduleId();
         String executionId = jobExecution.getExecutionId();
         long nextFireTime = jobExecution.getNextFireTime();
@@ -329,11 +347,13 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
 
     ///  标记等待执行， 已经接受了任务
     private void trackPendingExecution(JobExecution jobExecution) {
+        // 本地默认记录 pending 状态的任务，用于 stop/pause 时重新入队
+        pendingExecutions.computeIfAbsent(jobExecution.getWorkerGroup(), k -> new ConcurrentHashMap<>())
+                .put(jobExecution.getExecutionId(), jobExecution);
+
         if (!isPendingRecoveryEnabled()) { // config 需要配置 true
             return;
         }
-        pendingExecutions.computeIfAbsent(jobExecution.getWorkerGroup(), k -> new ConcurrentHashMap<>())
-                .put(jobExecution.getExecutionId(), jobExecution);
         String pendingKey = WorkerExecutionKeys.pendingKey(jobExecution);
         if (!register.setNodeAttributeIfAbsent(pendingKey, jobExecution)) {
             log.debug("Pending execution key already exists: {}", pendingKey);
@@ -410,15 +430,11 @@ public class DefaultTockWorker extends ResumableLifecycle.AbstractResumableLifec
                 && context.getConfig().isPendingExecutionRecoveryEnabled();
     }
 
-    private TimeSnapshot captureExecutionSnapshot(TimeSynchronizer timeSynchronizer, JobExecution jobExecution) {
-        if (timeSynchronizer == null || context == null || context.getTimeProvider() instanceof SystemTimeProvider) {
+    private TimeSnapshot captureExecutionSnapshot(TimeSynchronizer timeSynchronizer) {
+        if (timeSynchronizer == null || context == null) {
             return null;
         }
-        long now = context.currentTimeMillis();
-        long leadTimeMs = Math.max(jobExecution.getNextFireTime() - now, 0L);
-        long ttlMs = Math.min(DEFAULT_JOB_SNAPSHOT_TTL_MS,
-                Math.max(TimeUnit.SECONDS.toMillis(5), leadTimeMs + TimeUnit.SECONDS.toMillis(5)));
-        return timeSynchronizer.snapshot(ttlMs);
+        return timeSynchronizer.snapshot(0L);
     }
 
     private void bindSnapshot(TimeSynchronizer timeSynchronizer, TimeSnapshot timeSnapshot) {

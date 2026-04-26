@@ -28,7 +28,7 @@ public class RedisTimerAndTimeSyncDemo {
 
         JedisPool jedisPool = new JedisPool(jedisPoolConfig, "127.0.0.1", 6379);
 
-        String namespace = "namespace-2";
+        String namespace = "namespace-3";
 
         RedisTockRegister register = new RedisTockRegister(namespace, jedisPool);
 
@@ -55,7 +55,7 @@ public class RedisTimerAndTimeSyncDemo {
                 .build());
 
         tock.registerJob("job1", (ctx)->{
-            long l = tock.currentTimeMillis();
+            long l = ctx.currentTimeMillis();
             System.out.println("Job executed at: " + l);
         });
         tock.refreshSchedules();

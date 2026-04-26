@@ -106,7 +106,8 @@ ScheduleStore
 当前 `Tock` 内部就依赖这两个钩子来：
 
 - Master 成功后启动调度器
-- 当前节点 running 后启动 Worker
+- 当前节点 stopped 时收敛 Worker
+- Worker 的实际恢复消费现在更依赖心跳首次建立 / 恢复，而不是单靠 `onRunning()`
 
 ## 3.2 调度配置与调度器层
 

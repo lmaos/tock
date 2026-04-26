@@ -23,14 +23,14 @@ import java.util.function.Consumer;
  * </p>
  */
 @Slf4j
-public class RedisSubscribableWorkerQueue extends RedisSupport implements SubscribableWorkerQueue, TockContextAware {
+public class RedisSubscribableWorkerQueue extends RedisSupport implements SubscribableWorkerQueue {
 
     private static final int DEFAULT_SHARD_COUNT = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
     private static final int BLPOP_TIMEOUT_SECONDS = 1;
 
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<Consumer<JobExecution>>> subscribers = new ConcurrentHashMap<>();
     private DispatcherShard[] shards;
-    private volatile TockContext context;
+
     private final int shardCount;
 
     public RedisSubscribableWorkerQueue(String namespace, JedisPool jedisPool) {
@@ -40,26 +40,15 @@ public class RedisSubscribableWorkerQueue extends RedisSupport implements Subscr
     public RedisSubscribableWorkerQueue(String namespace, JedisPool jedisPool, int shardCount) {
         super(namespace, jedisPool);
         this.shardCount = shardCount;
-        this.init();
     }
 
     public static @NonNull WorkerQueue create(String namespace, JedisPool jedisPool) {
         return new RedisSubscribableWorkerQueue(namespace, jedisPool);
     }
 
-    public void init() {
-        if (this.shards == null) {
-            int normalizedShardCount = Math.max(1, shardCount);
-            this.shards = new DispatcherShard[normalizedShardCount];
-            for (int i = 0; i < normalizedShardCount; i++) {
-                this.shards[i] = new DispatcherShard(i);
-            }
-        }
-    }
-
     @Override
     protected void onStart() {
-        init();
+        ensureStarted();
     }
 
     @Override
@@ -88,22 +77,37 @@ public class RedisSubscribableWorkerQueue extends RedisSupport implements Subscr
             throw new IllegalStateException("TockContext with consumerExecutor must be set before subscribe");
         }
         subscribers.computeIfAbsent(workerGroup, k -> new CopyOnWriteArrayList<>()).add(consumer);
+        ensureStarted();
         shardFor(workerGroup).subscribe(workerGroup);
     }
 
     @Override
     public void unsubscribe(String workerGroup) {
         subscribers.remove(workerGroup);
+        if (shards == null) {
+            return;
+        }
         shardFor(workerGroup).unsubscribe(workerGroup);
-    }
-
-    @Override
-    public void setTockContext(TockContext context) {
-        this.context = Objects.requireNonNull(context, "context is null");
     }
 
     private DispatcherShard shardFor(String workerGroup) {
         return shards[Math.floorMod(workerGroup.hashCode(), shards.length)];
+    }
+
+    private void ensureStarted() {
+        if (this.shards != null) {
+            return;
+        }
+        synchronized (this) {
+            if (this.shards != null) {
+                return;
+            }
+            int normalizedShardCount = Math.max(1, shardCount);
+            this.shards = new DispatcherShard[normalizedShardCount];
+            for (int i = 0; i < normalizedShardCount; i++) {
+                this.shards[i] = new DispatcherShard(i);
+            }
+        }
     }
 
     private String queueKey(String workerGroup) {

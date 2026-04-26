@@ -21,7 +21,8 @@
 ## 实现思路
 
 服务端用 NIO 是为了把健康请求和心跳请求放在同一个轻量入口里，而不是引入完整 RPC 框架。  
-`HealthHost` 把当前 Master 可见的地址集合、端口和 key 交给注册中心，客户端再据此发现并重连。
+`HealthHost` 把当前 Master 可见的地址集合、端口和 key 交给注册中心，客户端再据此发现并重连。  
+现在恢复时会重新写回这个值，所以它更像“当前可用地址”而不是一次性初始化结果。
 
 ## 为什么这样设计
 
@@ -31,5 +32,6 @@
 
 ## 与维护器的关系
 
-`DefaultHealthMaintainer` 会启动这个服务端，并把 `HealthHost` 写回注册中心，供节点侧 `HealthClientManager` 发现。
+`DefaultHealthMaintainer` 会启动这个服务端，并把 `HealthHost` 写回注册中心，供节点侧 `HealthClientManager` 发现。  
+如果 Master 恢复了，维护器会覆盖旧的 `health.host`，避免客户端一直握着过期地址。
 

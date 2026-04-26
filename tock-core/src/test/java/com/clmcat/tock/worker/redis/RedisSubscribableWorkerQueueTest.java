@@ -32,7 +32,7 @@ public class RedisSubscribableWorkerQueueTest extends RedisTestSupport {
                 .workerExecutor(workerExecutor)
                 .timeSource(new com.clmcat.tock.time.DefaultTimeSynchronizer(new com.clmcat.tock.time.SystemTimeProvider(), 100L, 3))
                 .build();
-        queue.setTockContext(context);
+        queue.init(context);
 
         Assertions.assertFalse(queue.isStarted());
         queue.start(context);
@@ -62,7 +62,7 @@ public class RedisSubscribableWorkerQueueTest extends RedisTestSupport {
                 .workerExecutor(workerExecutor)
                 .timeSource(new com.clmcat.tock.time.DefaultTimeSynchronizer(new com.clmcat.tock.time.SystemTimeProvider(), 100L, 3))
                 .build();
-        queue.setTockContext(context);
+        queue.init(context);
 
         AtomicInteger counter = new AtomicInteger();
         CountDownLatch latch = new CountDownLatch(2);
@@ -100,7 +100,7 @@ public class RedisSubscribableWorkerQueueTest extends RedisTestSupport {
                 .workerExecutor(workerExecutor)
                 .timeSource(new com.clmcat.tock.time.DefaultTimeSynchronizer(new com.clmcat.tock.time.SystemTimeProvider(), 100L, 3))
                 .build();
-        queue.setTockContext(context);
+        queue.init(context);
 
         queue.push(execution("e-backlog"), "default");
 

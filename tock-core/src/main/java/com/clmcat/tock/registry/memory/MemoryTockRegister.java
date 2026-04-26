@@ -102,6 +102,11 @@ public class MemoryTockRegister extends Lifecycle.AbstractLifecycle implements T
     }
 
     @Override
+    public void setGroupAttribute(String name, Object value) {
+        memoryManager.getGroupAttributeMap().put(name, value);
+    }
+
+    @Override
     public <T> T getGroupAttribute(String name, Class<T> type) {
         return (T) memoryManager.getGroupAttributeMap().get(name);
     }

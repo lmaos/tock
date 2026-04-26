@@ -44,8 +44,14 @@ class DefaultHeartbeatReporterTest {
                 .build();
 
         AtomicInteger failureEvents = new AtomicInteger();
+        AtomicInteger firstSuccessEvents = new AtomicInteger();
         AtomicInteger recoveryEvents = new AtomicInteger();
         reporter.addHeartbeatReportListener(new HeartbeatReportListener() {
+            @Override
+            public void onHeartbeatReportFirstSuccess() {
+                firstSuccessEvents.incrementAndGet();
+            }
+
             @Override
             public void onHeartbeatReportFailed(int consecutiveFailures) {
                 failureEvents.incrementAndGet();
@@ -60,42 +66,33 @@ class DefaultHeartbeatReporterTest {
 
         try {
             reporter.init(context);
-            reporter.enqueue(HealthResponse.TIMEOUT);
+            reporter.enqueue(success());
             reporter.enqueue(HealthResponse.TIMEOUT);
             reporter.enqueue(HealthResponse.TIMEOUT);
             reporter.enqueue(HealthResponse.TIMEOUT);
             reporter.enqueue(HealthResponse.TIMEOUT);
             reporter.enqueue(success());
 
-            Assertions.assertTrue(reporter.isHeartbeatHealthy());
-            reporter.reportActive();
-            reporter.reportActive();
             reporter.reportActive();
             Assertions.assertTrue(reporter.isHeartbeatHealthy());
+            Assertions.assertTrue(reporter.isHeartbeatEstablished());
+            Assertions.assertEquals(1, firstSuccessEvents.get());
             Assertions.assertEquals(0, failureEvents.get());
             Assertions.assertEquals(0, recoveryEvents.get());
 
             reporter.reportActive();
+            reporter.reportActive();
+            reporter.reportActive();
+            reporter.reportActive();
             Assertions.assertFalse(reporter.isHeartbeatHealthy());
             Assertions.assertEquals(1, failureEvents.get());
+            Assertions.assertEquals(1, firstSuccessEvents.get());
             Assertions.assertEquals(0, recoveryEvents.get());
 
             reporter.reportActive();
-            Assertions.assertFalse(reporter.isHeartbeatHealthy());
-            Assertions.assertEquals(1, failureEvents.get());
-
-            reporter.reportActive();
             Assertions.assertTrue(reporter.isHeartbeatHealthy());
             Assertions.assertEquals(1, failureEvents.get());
-            Assertions.assertEquals(1, recoveryEvents.get());
-
-            reporter.reportActive();
-            Assertions.assertTrue(reporter.isHeartbeatHealthy());
-            Assertions.assertEquals(1, failureEvents.get());
-            Assertions.assertEquals(1, recoveryEvents.get());
-
-            reporter.reportActive();
-            Assertions.assertTrue(reporter.isHeartbeatHealthy());
+            Assertions.assertEquals(1, firstSuccessEvents.get());
             Assertions.assertEquals(1, recoveryEvents.get());
         } finally {
             workerExecutor.stop();
@@ -112,7 +109,7 @@ class DefaultHeartbeatReporterTest {
                 .build();
     }
 
-    private static final class ScriptedHeartbeatReporter extends DefaultHeartbeatReporter {
+        private static final class ScriptedHeartbeatReporter extends DefaultHeartbeatReporter {
         private final ScriptedHealthClientManager healthClientManager;
 
         private ScriptedHeartbeatReporter(MemoryTockRegister register) {

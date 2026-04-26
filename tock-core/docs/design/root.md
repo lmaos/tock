@@ -25,7 +25,7 @@
 `Tock` 依赖 `Config` 提供所有可替换组件；`Config` 再把 `register`、`scheduleStore`、`workerQueue`、`workerExecutor`、`scheduler`、`worker`、`timeProvider`、`timeSynchronizer`、`healthMaintainer`、`heartbeatReporter` 注入给 `Tock`。  
 `Tock` 启动后会构建 `TockContext`，再把上下文交给这些组件。这样各模块只通过 `context.getXxx()` 获取依赖，而不是彼此直接 new。
 
-这层设计的结果是：
+这样拆开后的结果是：
 
 - root 层只负责装配和编排
 - 各子模块只关心自己的职责
@@ -37,7 +37,7 @@
 2. `LifecycleSupport.loadLifecycles(...)` 扫描 `Config` 和 `Tock` 中的生命周期组件
 3. `start()` 先启动共享基础设施，再启动 register / health / worker / scheduler
 4. `register` 负责把当前节点和 Master 状态准备好
-5. `healthMaintainer`、`heartbeatReporter`、`worker`、`scheduler` 依次进入运行态
+5. `healthMaintainer` 先把健康服务挂起来，`heartbeatReporter` 建立好心跳后，`worker` 再进入消费态，`scheduler` 则继续跟随 Master 状态运行
 
 ## 实现思路
 

@@ -12,7 +12,7 @@ public class HealthTimeProvider extends Lifecycle.AbstractLifecycle implements T
     @Override
     public long currentTimeMillis() {
         long time = context.getHeartbeatReporter().serverTime();
-        log.info("HealthTimeProvider: currentTimeMillis: {}", time);
+        // log.debug("HealthTimeProvider: currentTimeMillis: {}", time);
         return time;
     }
 

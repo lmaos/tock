@@ -37,7 +37,7 @@ public class DefaultTimeSynchronizerTest {
     }
 
     @Test
-    void shouldSkipSnapshotForSystemProvider() {
+    void shouldCreateSnapshotForSystemProvider() {
         TimeSyncBenchmarkSupport.FakeClock clock = new TimeSyncBenchmarkSupport.FakeClock(1_700_000_000_000L, 0L, 0L);
         AtomicLong providerTime = new AtomicLong(7_000L);
         SystemTimeProvider provider = new SystemTimeProvider() {
@@ -55,9 +55,14 @@ public class DefaultTimeSynchronizerTest {
         );
 
         long first = synchronizer.currentTimeMillis();
-        Assertions.assertNull(synchronizer.snapshot(100L));
+        TimeSnapshot snapshot = synchronizer.snapshot(100L);
+        Assertions.assertNotNull(snapshot);
+        Assertions.assertEquals(7_000L, snapshot.currentTimeMillis());
+        synchronizer.bindSnapshot(snapshot);
+        Assertions.assertSame(snapshot, synchronizer.currentSnapshot());
         providerTime.set(7_250L);
         clock.advanceRealMillis(995L);
+        Assertions.assertEquals(7_250L, snapshot.currentTimeMillis());
         long second = synchronizer.currentTimeMillis();
 
         Assertions.assertEquals(250L, second - first);
@@ -149,7 +154,7 @@ public class DefaultTimeSynchronizerTest {
     }
 
     @Test
-    void shouldPreferBoundSnapshotAndFallBackAfterExpiry() {
+    void shouldKeepBoundSnapshotWithoutExpiry() {
         TimeSyncBenchmarkSupport.FakeClock clock = new TimeSyncBenchmarkSupport.FakeClock(1_700_000_000_000L, 0L, 0L);
         AtomicLong offsetMs = new AtomicLong(1_000L);
         TimeProvider provider = () -> clock.remoteTimeMillis(offsetMs.get());
@@ -179,9 +184,11 @@ public class DefaultTimeSynchronizerTest {
         withSnapshot.forceReinitialize();
         plain.forceReinitialize();
 
-        long afterExpirySnapshot = withSnapshot.currentTimeMillis();
-        long afterExpiryPlain = plain.currentTimeMillis();
-        Assertions.assertEquals(afterExpiryPlain, afterExpirySnapshot);
+        long afterAdvanceSnapshot = withSnapshot.currentTimeMillis();
+        long afterAdvancePlain = plain.currentTimeMillis();
+        Assertions.assertSame(snapshot, withSnapshot.currentSnapshot());
+        Assertions.assertEquals(200L, afterAdvanceSnapshot - seeded);
+        Assertions.assertTrue(afterAdvanceSnapshot < afterAdvancePlain, "snapshot should still ignore later sync jumps");
     }
 
     private static final class OscillatingRedisTimeProvider implements TimeProvider {

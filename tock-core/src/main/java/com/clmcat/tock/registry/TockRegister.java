@@ -41,6 +41,8 @@ public interface TockRegister extends Lifecycle {
 
     boolean setGroupAttributeIfAbsent(String name, Object value);
 
+    void setGroupAttribute(String name, Object value);
+
     <T> T getGroupAttribute(String name,  Class<T> type);
 
     boolean removeGroupAttribute(String name);

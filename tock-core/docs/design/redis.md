@@ -1,6 +1,6 @@
 # Redis 支撑模块设计
 
-`redis` 目录放 Redis 组件共用的基础封装。
+`redis` 目录放 Redis 组件共用的基础封装，主要是把连接、namespace 和编解码这些重复逻辑收在一起。
 
 ## 核心类
 

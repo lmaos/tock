@@ -57,8 +57,8 @@ public class RedisWorkerRecoveryTest extends RedisTestSupport {
                 consumerExecutor1, workerExecutor1, schedulerExecutor1);
         TockContext context2 = buildContext(register2, queue2, scheduleStore, MemoryJobStore.create(),
                 consumerExecutor2, workerExecutor2, schedulerExecutor2);
-        queue1.setTockContext(context1);
-        queue2.setTockContext(context2);
+        queue1.init(context1);
+        queue2.init(context2);
 
         DefaultTockWorker worker1 = new DefaultTockWorker();
         DefaultTockWorker worker2 = new DefaultTockWorker();

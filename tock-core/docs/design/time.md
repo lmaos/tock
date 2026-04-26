@@ -10,6 +10,7 @@
 | `TimeProvider` | 原始时间采样接口 |
 | `TimeSynchronizer` | 同步后的时间基准接口 |
 | `DefaultTimeSynchronizer` | 默认实现 |
+| `TimeSnapshot` | 线程绑定的时间快照 |
 | `SystemTimeProvider` | 本地系统时间 |
 | `RedisTimeProvider` | Redis `TIME` |
 | `OffsetTimeProvider` | 偏移包装 |
@@ -22,18 +23,21 @@
 - 对调度器来说，时间必须稳定、单调、可比较
 - 默认不额外配置时，时间直接依托服务器当前时间
 - 如果配置了同步规则，`time` 模块会把调度侧和 Worker 侧拉到同一时间基准
+- 系统时间源也会返回统一的快照对象，只是快照内部直接代理 `currentTimeMillis()`
 
 ## 依赖链路
 
 - `RedisTimeProvider` 通过 `Jedis` 取 Redis 时间
 - `HealthTimeProvider` 通过 `HeartbeatReporter.serverTime()` 取健康服务时间
 - `DefaultTimeSynchronizer` 依赖 `TimeProvider`
+- `DefaultTockWorker` 会把快照绑定到业务线程，`JobContext.currentTimeMillis()` 也直接读这个来源
+- 对 Worker 来说，这个快照不是一次性读数，而是同一个任务从开始到结束共用的时间种子
 - `EventDrivenCronScheduler`、`DefaultTockWorker`、`RedisTockRegister` 都会通过 `TockContext.currentTimeMillis()` 使用这里的结果
 
 ## 实现思路
 
 时间模块分成“时间来源”和“时间同步器”两层：来源只负责拿一个原始时间，同步器负责把这个时间变成可用于调度的稳定时间。  
-`DefaultTimeSynchronizer` 在实现上做了采样、偏移平滑和单调递增保护，因此不会直接把某个远程时间原样抛给上层。
+`DefaultTimeSynchronizer` 在实现上做了采样、偏移平滑和单调递增保护；如果是系统时间源，它仍然会返回一个快照对象，只是这个快照直接代理原始时间。
 
 ## 为什么这样设计
 
@@ -41,4 +45,5 @@
 - **稳定**：同步器统一处理抖动和回拨问题
 - **职责分层**：来源和校正分开，方便测试和排障
 - **默认简单**：不配置同步时就退化为系统时间，不给使用者增加额外心智负担
+- **快照统一**：调用方不用先判断有没有快照，线程里取时间时逻辑更顺
 

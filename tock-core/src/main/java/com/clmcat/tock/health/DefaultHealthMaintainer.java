@@ -105,7 +105,7 @@ public class DefaultHealthMaintainer extends ResumableLifecycle.AbstractResumabl
             // 启用内置心跳服务。
             try {
                 HealthHost healthHost = healthServer.start();
-                register.setGroupAttributeIfAbsent("health.host",  healthHost);
+                register.setGroupAttribute("health.host", healthHost);
             } catch (Exception e) {
                 log.warn("Failed to start health server", e);
             }
@@ -174,7 +174,7 @@ public class DefaultHealthMaintainer extends ResumableLifecycle.AbstractResumabl
 
     protected void reportActive(String nodeId) {
         if (!isRunning()) return; // 没有启用，则无效
-        log.info("Node {} has been activated", nodeId);
+//        log.debug("Node {} has been activated", nodeId);
 
         task.submit(() -> {
             heartbeatManager.refresh(nodeId);

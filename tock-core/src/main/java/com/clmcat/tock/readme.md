@@ -1,6 +1,6 @@
 # Tock 分布式定时器架构文档
 
-开发时的设计思路。
+这是源码树里的设计说明，主要用来对齐当前实现和模块边界。
 
 ## 项目包结构
 
@@ -14,7 +14,7 @@ com.clmcat.tock
 │
 ├── job/                      # 任务执行器相关
 │   ├── JobExecutor.java      # 业务逻辑接口，用户实现 execute(JobContext)
-│   ├── JobContext.java       # 执行上下文（scheduleId, jobId, 计划时间, 实际时间, 参数等）
+│   ├── JobContext.java       # 执行上下文（scheduleId, jobId, 计划时间, 实际时间, 参数、时间源等）
 │   ├── JobRegistry.java      # 注册中心，存储 jobId -> JobExecutor 映射
 │   └── DefaultJobRegistry.java # 内存版实现
 │
@@ -42,7 +42,7 @@ com.clmcat.tock
 │
 ├── worker/                   # 工作者（任务执行端）
 │   ├── TockWorker.java       # Worker 接口（start/stop/joinGroup/leaveGroup/getGroups/isRunning）
-│   ├── DefaultTockWorker.java # 默认实现：支持订阅和拉取两种队列，本地精确计时，分布式锁
+│   ├── DefaultTockWorker.java # 默认实现：支持订阅和拉取两种队列，本地精确计时，分布式锁，时间快照种子
 │   ├── WorkerQueue.java      # 队列接口（push）
 │   ├── PullableWorkerQueue.java   # 拉模式队列（poll）
 │   ├── SubscribableWorkerQueue.java # 订阅模式队列（subscribe/unsubscribe）
@@ -79,7 +79,7 @@ com.clmcat.tock
 │   ├── HealthMaintainer.java     # 健康维护器接口（Master 端）
 │   ├── DefaultHealthMaintainer.java # 默认实现，使用 HealthServer 接收心跳，HeartbeatManager 判定超时
 │   ├── HeartbeatReporter.java    # Worker 端心跳上报接口
-│   ├── DefaultHeartbeatReporter.java # 默认实现，通过 HealthClientManager 连接 Master
+│   ├── DefaultHeartbeatReporter.java # 默认实现，通过 HealthClientManager 连接 Master，区分首次成功和恢复
 │   ├── HealthHost.java           # 健康服务地址描述
 │   ├── server/
 │   │   ├── HealthServer.java     # 基于 NIO 的健康检查服务端
@@ -95,7 +95,7 @@ com.clmcat.tock
 │   ├── TimeProvider.java     # 原始时间提供者（供同步器采样）
 │   ├── SystemTimeProvider.java # 本地系统时间
 │   ├── TimeSynchronizer.java # 时间同步器接口
-│   ├── DefaultTimeSynchronizer.java # 默认实现：采样远程时间源，RTT 中点补偿，单调递增
+│   ├── DefaultTimeSynchronizer.java # 默认实现：采样远程时间源，RTT 中点补偿，单调递增，统一快照种子
 │   └── HealthTimeProvider.java   # 基于 Master 健康服务的时间提供者
 │
 ├── serialize/                # 序列化
@@ -160,7 +160,7 @@ com.clmcat.tock
     - 订阅/拉取队列获取 `JobExecution`
     - 计算本地延迟 `delay = fireTime - now`
     - 使用高精度时间轮在本地等待至到期
-    - 获取分布式锁（`setGroupAttributeIfAbsent`）
+    - 获取分布式锁（`setGroupAttributeIfAbsent`；健康地址等运行时字段会覆盖写）
     - 调用 `JobExecutor.execute(JobContext)`
     - 释放锁和节点属性
 5. **动态配置更新**：
@@ -170,6 +170,7 @@ com.clmcat.tock
     - Master 宕机 → 新节点选主，`EventDrivenCronScheduler` 重新加载配置并开始调度
     - Worker 宕机 → Master 健康检查判定过期 → 清理其持有的分布式锁 → 未完成任务重新入队
     - Worker 心跳熔断 → 连续失败后主动退出所有组、归还任务、释放锁，心跳恢复后自动重新加入
+    - 时间快照 → 业务线程直接读 `TimeSnapshot`，同一个任务从开始到业务结束都沿用同一个快照种子
 
 ## 关键设计点
 

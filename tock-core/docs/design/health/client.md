@@ -20,6 +20,7 @@
 - 请求通过 `reqId` 匹配响应，避免并发请求串包
 - `HealthClientManager` 从注册中心读取 `health.host`
 - 连接断开或 Master 切换后，管理器会自动重建连接
+- 只要 `health.host` 被新的 Master 覆盖，客户端就会按新地址重新连过去，不再依赖旧值留存
 
 ## 实现思路
 

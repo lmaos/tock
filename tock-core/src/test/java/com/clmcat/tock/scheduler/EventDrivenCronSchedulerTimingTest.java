@@ -160,6 +160,10 @@ class EventDrivenCronSchedulerTimingTest {
         }
 
         @Override
+        public void setGroupAttribute(String name, Object value) {
+        }
+
+        @Override
         public <T> T getGroupAttribute(String name, Class<T> type) {
             return null;
         }

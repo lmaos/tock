@@ -26,6 +26,7 @@ public class DefaultHeartbeatReporter extends ResumableLifecycle.AbstractResumab
     private HealthClientManager healthClient;
     private NodeListener nodeListener;
     private final Set<HeartbeatReportListener> heartbeatReportListeners = ConcurrentHashMap.newKeySet();
+    private final AtomicBoolean heartbeatEstablished = new AtomicBoolean(false);
     private final AtomicInteger consecutiveFailures = new AtomicInteger();
     private final AtomicBoolean heartbeatHealthy = new AtomicBoolean(true);
     private ScheduledExecutorService heartbeatScheduler;
@@ -74,6 +75,7 @@ public class DefaultHeartbeatReporter extends ResumableLifecycle.AbstractResumab
             heartbeatTask.cancel(force);
             heartbeatTask = null;
         }
+        heartbeatEstablished.set(false);
         log.info("Heartbeat reporting paused");
     }
 
@@ -120,6 +122,7 @@ public class DefaultHeartbeatReporter extends ResumableLifecycle.AbstractResumab
             heartbeatScheduler = null;
         }
         heartbeatReportListeners.clear();
+        heartbeatEstablished.set(false);
         consecutiveFailures.set(0);
         heartbeatHealthy.set(true);
         log.info("DefaultHeartbeatReporter stopped");
@@ -136,6 +139,11 @@ public class DefaultHeartbeatReporter extends ResumableLifecycle.AbstractResumab
     @Override
     public boolean isHeartbeatHealthy() {
         return heartbeatHealthy.get();
+    }
+
+    @Override
+    public boolean isHeartbeatEstablished() {
+        return heartbeatEstablished.get();
     }
 
     @Override
@@ -190,6 +198,20 @@ public class DefaultHeartbeatReporter extends ResumableLifecycle.AbstractResumab
     }
 
     private void onHeartbeatReportSuccess() {
+        boolean firstSuccess = heartbeatEstablished.compareAndSet(false, true);
+        if (firstSuccess) {
+            heartbeatHealthy.set(true);
+            consecutiveFailures.set(0);
+            for (HeartbeatReportListener listener : heartbeatReportListeners) {
+                try {
+                    listener.onHeartbeatReportFirstSuccess();
+                } catch (Exception e) {
+                    log.warn("Heartbeat first-success listener error", e);
+                }
+            }
+            return;
+        }
+
         int previousFailures = consecutiveFailures.getAndSet(0);
         if (previousFailures > 0 && heartbeatHealthy.compareAndSet(false, true)) {
             for (HeartbeatReportListener listener : heartbeatReportListeners) {

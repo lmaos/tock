@@ -34,7 +34,7 @@ public class LocalTimerDemo {
                 .build());
 
         tock.registerJob("job1", (ctx)->{
-            System.out.println("Job executed at: " + System.currentTimeMillis());
+            System.out.println("Job executed at: " + ctx.currentTimeMillis());
         });
         tock.refreshSchedules();
         tock.sync();

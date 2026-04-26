@@ -119,7 +119,7 @@ public class HealthServer {
                             socketChannel.register(workerSelector, SelectionKey.OP_READ);
                             workerSelector.wakeup();
 
-                            log.info("Socket channel accepted : {}", socketChannel.getRemoteAddress());
+                            // log.debug("Socket channel accepted : {}", socketChannel.getRemoteAddress());
                         }
                     }
                 }
@@ -155,13 +155,13 @@ public class HealthServer {
 
 
                         if (key.isReadable()) {
-                            log.info("Socket channel read : {}", socketChannel.getRemoteAddress());
+                            // log.debug("Socket channel read : {}", socketChannel.getRemoteAddress());
                             int len = socketChannel.read(readBuffer);
                             if (len <= 0) {
                                 if (len == -1) {
                                     socketChannel.close();
                                     key.cancel();
-                                    log.info("Socket channel closed : {}", socketChannel.getRemoteAddress());
+                               //     log.debug("Socket channel closed : {}", socketChannel.getRemoteAddress());
                                 }
                                 continue; // 跳过 本次 while 的 Channel 处理
                             }
@@ -284,7 +284,7 @@ public class HealthServer {
 
     protected void onActive(ChannelContext channelContext) {
         String clientId = channelContext.getClientId();
-        log.info("Node {} has been activated", clientId);
+        log.debug("Node {} has been activated", clientId);
     }
 
     public static class ChannelContext {

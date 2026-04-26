@@ -17,6 +17,7 @@
 - `RedisTockMaster` 使用租约/续租思路维护主身份
 - 当前节点会负责心跳和自身状态上报
 - namespace 会隔离不同应用或测试用例的数据
+- `setGroupAttribute(...)` 是覆盖写，`setGroupAttributeIfAbsent(...)` 则保留“只写一次”的语义
 
 ## 依赖链路
 
@@ -27,7 +28,7 @@
 ## 实现思路
 
 把 master、node、runtime state 和 group attribute 放到同一个注册中心里，能够让选主、执行锁、心跳、恢复逻辑都读取同一份 cluster state。  
-`RedisTockRegister.start()` 先启动当前节点再启动 master，也是为了让选主时立刻拿到当前节点 ID。
+`RedisTockRegister.start()` 先启动当前节点再启动 master，也是为了让选主时立刻拿到当前节点 ID；健康链路里的 `health.host` 现在也会在恢复时覆盖写回去。
 
 ## 为什么这样设计
 

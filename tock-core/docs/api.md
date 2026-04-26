@@ -33,6 +33,19 @@
 | `sync()` | 一直阻塞到 `shutdown()` |
 | `sync(long ms)` | 最多阻塞指定毫秒数 |
 
+## `HeartbeatReporter`
+
+| 方法 | 说明 |
+| --- | --- |
+| `addHeartbeatReportListener(...)` | 监听心跳上报结果 |
+| `isHeartbeatEstablished()` | 当前心跳是否已经建立成功过 |
+
+`HeartbeatReportListener` 会区分三种状态：
+
+- 首次建立成功
+- 失败累计达到阈值
+- 失败后恢复成功
+
 ## `ScheduleConfig.Builder`
 
 `ScheduleConfig` 描述的是“什么时候执行哪个 job，并交给哪个 group”。
@@ -87,6 +100,13 @@ public interface JobExecutor {
 | `actualFireTime` | 实际开始执行时间 |
 | `params` | `ScheduleConfig` 透传参数 |
 | `retryCount` | 预留字段，默认 `0` |
+| `timeSource` | 当前线程绑定的时间种子；没有快照时回退到上下文默认时间源，同一个任务从进入 Worker 到业务结束都会沿用它 |
+
+辅助方法：
+
+| 方法 | 说明 |
+| --- | --- |
+| `currentTimeMillis()` | 直接从 `timeSource` 取当前时间 |
 
 推荐在业务日志里同时记录：
 
@@ -94,7 +114,7 @@ public interface JobExecutor {
 - `actualFireTime`
 - `actualFireTime - scheduledTime`
 
-这样最容易追踪执行偏差。
+这样最容易追踪执行偏差，也方便把业务线程里的时间和调度线程对齐。
 
 ## `TaskSchedulers`
 

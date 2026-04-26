@@ -140,6 +140,14 @@ public class RedisTockRegister extends RedisSupport implements TockRegister {
     }
 
     @Override
+    public void setGroupAttribute(String name, Object value) {
+        withJedis(jedis -> {
+            jedis.hset(raw(groupAttrKey()), raw(name), encode(value));
+            return null;
+        });
+    }
+
+    @Override
     public <T> T getGroupAttribute(String name, Class<T> type) {
         return withJedis(jedis -> decode(jedis.hget(raw(groupAttrKey()), raw(name)), type));
     }

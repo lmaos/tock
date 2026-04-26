@@ -28,6 +28,8 @@ public interface HeartbeatReporter extends Lifecycle {
 
     boolean isHeartbeatHealthy();
 
+    boolean isHeartbeatEstablished();
+
     void addHeartbeatReportListener(HeartbeatReportListener listener);
 
     void removeHeartbeatReportListener(HeartbeatReportListener listener);

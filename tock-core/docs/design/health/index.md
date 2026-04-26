@@ -7,16 +7,18 @@
 - 对外提供健康服务端
 - 对内维护活跃心跳
 - 在 Master 切换时重连和通知
+- 把心跳首次建立、失败和恢复这几种状态区分开，方便 Worker 做更稳一点的启动判断
 
 ## 关键类
 
 | 类 | 作用 |
 | --- | --- |
 | `DefaultHealthMaintainer` | 节点侧健康维护与过期清理 |
-| `DefaultHeartbeatReporter` | 节点心跳上报 |
+| `DefaultHeartbeatReporter` | 节点心跳上报，区分首次成功、恢复成功和失败累计 |
 | `HealthHost` | 健康服务地址描述 |
 | `HealthMaintainer` | 健康维护接口 |
 | `HeartbeatReporter` | 心跳上报接口 |
+| `HeartbeatReportListener` | 心跳结果监听器 |
 | `NodeHealthListener` | 节点过期监听器 |
 
 ## 设计边界
@@ -30,15 +32,16 @@
 - `DefaultHealthMaintainer` 依赖 `HealthServer` 和 `HeartbeatManager`
 - `DefaultHeartbeatReporter` 依赖 `HealthClientManager`
 - `HealthClientManager` 依赖 `TockRegister` 读取 `health.host`
+- `DefaultHealthMaintainer` 会在恢复时覆盖写 `health.host`，避免旧地址一直留在注册中心里
 - `NetworkUtils` 用于发现可访问 IP 和探测服务端口
 
 ## 实际运行链路
 
 1. Master 启动 `HealthServer`
-2. `DefaultHealthMaintainer` 把 `HealthHost` 写回注册中心
+2. `DefaultHealthMaintainer` 把 `HealthHost` 写回注册中心，恢复时会覆盖旧值
 3. Worker 侧 `DefaultHeartbeatReporter` 启动 `HealthClientManager`
 4. `HealthClientManager` 发现 Master 地址并建立连接
-5. `reportActive()` 周期性上报活跃心跳
+5. `reportActive()` 周期性上报活跃心跳，第一次成功会被单独标记
 6. `DefaultHealthMaintainer` 扫描超时节点并通知 `NodeHealthListener`
 
 ## 为什么这样设计

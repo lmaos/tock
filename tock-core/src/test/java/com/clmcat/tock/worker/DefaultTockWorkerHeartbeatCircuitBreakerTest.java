@@ -67,12 +67,15 @@ class DefaultTockWorkerHeartbeatCircuitBreakerTest {
             worker.start(context);
             register.start(context);
 
+            Assertions.assertFalse(worker.isRunning());
+
+            heartbeatReporter.success();
             Assertions.assertTrue(worker.isRunning());
 
             heartbeatReporter.fail();
             Assertions.assertFalse(worker.isRunning());
 
-            heartbeatReporter.recover();
+            heartbeatReporter.success();
             Assertions.assertTrue(worker.isRunning());
         } finally {
             worker.stop();
@@ -121,7 +124,7 @@ class DefaultTockWorkerHeartbeatCircuitBreakerTest {
 
             Assertions.assertFalse(worker.isRunning());
 
-            heartbeatReporter.recover();
+            heartbeatReporter.success();
             Assertions.assertTrue(worker.isRunning());
         } finally {
             worker.stop();
@@ -134,6 +137,7 @@ class DefaultTockWorkerHeartbeatCircuitBreakerTest {
     private static final class RecordingHeartbeatReporter implements HeartbeatReporter {
         private final Set<HeartbeatReportListener> listeners = new CopyOnWriteArraySet<HeartbeatReportListener>();
         private volatile boolean healthy = true;
+        private volatile boolean established = false;
         private volatile boolean started;
 
         @Override
@@ -154,6 +158,11 @@ class DefaultTockWorkerHeartbeatCircuitBreakerTest {
         @Override
         public boolean isHeartbeatHealthy() {
             return healthy;
+        }
+
+        @Override
+        public boolean isHeartbeatEstablished() {
+            return established;
         }
 
         @Override
@@ -186,10 +195,17 @@ class DefaultTockWorkerHeartbeatCircuitBreakerTest {
             }
         }
 
-        private void recover() {
+        private void success() {
+            boolean firstSuccess = !established;
+            boolean wasHealthy = healthy;
+            established = true;
             healthy = true;
             for (HeartbeatReportListener listener : listeners) {
-                listener.onHeartbeatReportRecovered();
+                if (firstSuccess) {
+                    listener.onHeartbeatReportFirstSuccess();
+                } else if (!wasHealthy) {
+                    listener.onHeartbeatReportRecovered();
+                }
             }
         }
 
