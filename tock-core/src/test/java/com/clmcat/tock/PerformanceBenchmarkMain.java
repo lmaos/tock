@@ -583,12 +583,14 @@ public final class PerformanceBenchmarkMain {
             List<Double> throughputValues = new ArrayList<Double>(rounds.size());
             List<Double> cpuValues = new ArrayList<Double>(rounds.size());
             double pushTotal = 0.0D;
+            int measuredRounds = 0;
             long peakHeap = 0L;
             for (ThroughputRoundResult round : rounds) {
                 if (!round.warmupOnly) {
                     throughputValues.add(round.throughputPerSecond);
                     cpuValues.add(round.processCpuLoadPercent);
                     pushTotal += round.pushSeconds;
+                    measuredRounds++;
                     peakHeap = Math.max(peakHeap, round.peakHeapUsedBytes);
                 }
             }
@@ -599,7 +601,7 @@ public final class PerformanceBenchmarkMain {
                     percentileDouble(throughputValues, 95),
                     averageDoubles(cpuValues),
                     peakHeap,
-                    rounds.isEmpty() ? 0.0D : pushTotal / rounds.size()
+                    measuredRounds == 0 ? 0.0D : pushTotal / measuredRounds
             );
         }
     }
@@ -965,7 +967,7 @@ public final class PerformanceBenchmarkMain {
             if (!throughputResults.isEmpty()) {
                 ThroughputScenarioResult throughputBaseline = findThroughput("memory-high-precision");
                 builder.append("\n## Throughput Summary\n\n");
-                builder.append("| Scenario | avg tasks/s | p95 tasks/s | avg push seconds | avg CPU% | peak heap (MiB) | vs baseline |\n");
+                builder.append("| Scenario | avg tasks/s | p95 tasks/s | avg dispatch seconds | avg CPU% | peak heap (MiB) | vs baseline |\n");
                 builder.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
                 for (ThroughputScenarioResult result : throughputResults) {
                     double ratio = throughputBaseline.averageThroughputPerSecond == 0.0D ? 0.0D :
@@ -1008,10 +1010,11 @@ public final class PerformanceBenchmarkMain {
             builder.append("\n## Capability Notes\n\n");
             builder.append("- `actualFireTime - scheduledTime` is the primary user-facing precision signal for whole-second cron jobs.\n");
             builder.append("- `callback now` records the value returned by `tock.currentTimeMillis()` inside the business callback, showing what the application actually observes.\n");
-            builder.append("- Throughput is measured as **immediate JobExecution dispatch capacity** through the WorkerQueue + Worker + JobExecutor path with unique schedule IDs, not as cron generation rate.\n");
-            builder.append("- CPU% and heap values are sampled during throughput rounds only, because that phase has sustained load.\n");
-            return builder.toString();
-        }
+                builder.append("- Throughput is measured as **immediate JobExecution dispatch capacity** through the WorkerQueue + Worker + JobExecutor path with unique schedule IDs, not as cron generation rate.\n");
+                builder.append("- `avg dispatch seconds` is the average push time per measured round, not including warmup rounds.\n");
+                builder.append("- CPU% and heap values are sampled during throughput rounds only, because that phase has sustained load.\n");
+                return builder.toString();
+            }
 
         private PrecisionScenarioResult findPrecision(String scenarioKey) {
             for (PrecisionScenarioResult result : precisionResults) {

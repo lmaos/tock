@@ -47,11 +47,11 @@ Config -> Tock -> Register / ScheduleStore / WorkerQueue / TaskScheduler
 
 ## 性能和验证
 
-从现有 benchmark 看，整体表现还算稳：
+当前 benchmark 结果：
 
-- **内存 Worker 严格 A/B**：`high-precision` 的 `worker-chain avg abs skew` 约 **0.360ms**，明显优于默认调度器的 **2.950ms**
-- **Windows 本机 Redis 稳态精度**：高精度 Worker 稳定在 **3ms 级**
-- **Windows 本机吞吐**：内存模式约 **1 万 tasks/s**，Redis 模式约 **5.4k ~ 5.9k tasks/s**
+- **内存 Worker 严格 A/B**：`high-precision` 的 `worker-chain avg abs skew` 为 **0.28ms**，默认调度器为 **4.31ms**
+- **Windows 本机 Redis 精度**：`redis-high-precision` 为 **0.44ms**，`redis-default-worker` 为 **8.16ms**
+- **Windows 本机吞吐**：内存模式约 **5.5k ~ 5.7k tasks/s**，Redis 模式约 **4.1k ~ 4.2k tasks/s**
 
 这些数据说明：
 
